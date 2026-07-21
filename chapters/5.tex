@@ -1,0 +1,3412 @@
+\chapter{李群、李代数与\texorpdfstring{$\SE(3)$}{SE(3)}：从内蕴几何到SLAM位姿扰动}
+
+%——————————————————————————————————%
+
+\newenvironment{lieexample}[1]{%
+    \par\noindent\textbf{\color{main}例：#1}\rmfamily\par
+}{%
+    \par\ignorespacesafterend}
+
+本章的核心不是记住一组矩阵公式，而是解决SLAM中的一个根本问题：位姿$g\in\SE(3)$是流形上的点，而优化器算出的增量应属于一个线性空间。二者不能直接相加，那么怎样把局部增量严格地变成一个合法的新位姿？
+
+本章沿着下面的内蕴逻辑链展开：
+\[
+\begin{aligned}
+\SE(3)\text{是李群}
+&\Longrightarrow T_e\SE(3)=\se(3)\\
+&\Longrightarrow L_g,R_g\text{是把单位元送到任意位姿的微分同胚}\\
+&\Longrightarrow (dL_g)_e,(dR_g)_e\text{把单位元处的方向搬到}T_g\SE(3)\\
+&\Longrightarrow \xi\in\se(3)\text{生成左不变向量场}\\
+&\Longrightarrow \text{积分曲线定义}\ \Exp(t\xi)\\
+&\Longrightarrow \Ad_g=(dC_g)_e\text{转换左、右平凡化坐标}\\
+&\Longrightarrow g\Exp(\delta\xi_{\mathrm{right}})
+ =\Exp(\delta\xi_{\mathrm{left}})g\text{是同一局部更新的两种写法}\\
+&\Longrightarrow \operatorname{BCH}(\xi,\eta)
+ =\Log(\Exp(\xi)\Exp(\eta))\text{合并连续小运动}\\
+&\Longrightarrow J_R=J_L\Ad_g\text{是左右扰动坐标下的Jacobian换元}\\
+&\Longrightarrow \text{后端在}\se(3)\text{中线性化，在}\SE(3)\text{上更新}.
+\end{aligned}
+\]
+
+前半部分尽量保持内蕴：不依赖$4\times4$矩阵，不使用欧拉角，也不把位姿当作$\R^6$中的普通向量。需要准确说明的是，指数映射通过积分曲线定义，而积分曲线满足一个坐标无关的内蕴微分方程。第5.7.1小节会先把这个方程在矩阵李群中展开，以连接抽象定义与熟悉的矩阵指数；更具体的$\SO(3)$、$\SE(3)$实现将在后文作为计算工具出现。
+
+%——————————————————————————————————%
+
+\section{从群到李群}
+
+\subsection{群是什么}
+
+\begin{definition}[群]
+一个群是一个集合$G$及其二元运算$(g,h)\mapsto gh$。它满足：
+\begin{enumerate}
+    \item 封闭性：$g,h\in G\Longrightarrow gh\in G$；
+    \item 结合律：$(gh)k=g(hk)$；
+    \item 单位元：存在$e\in G$，使$eg=ge=g$；
+    \item 逆元：每个$g\in G$存在$g^{-1}\in G$，使$gg^{-1}=g^{-1}g=e$。
+\end{enumerate}
+\end{definition}
+
+\begin{lieexample}{刚体位姿中的群结构}
+对刚体位姿而言，$G=\SE(3)$，群元素$g$表示一个合法刚体位姿，乘法$g_1g_2$表示两个刚体变换的复合，单位元$e$表示零旋转、零平移的恒等位姿，而$g^{-1}$表示反向坐标变换。群结构保证“复合”和“求逆”始终留在合法位姿集合中。
+\end{lieexample}
+
+仅有群结构还不够。它能说明位姿可以复合、求逆，却不能自然回答“当前位姿发生一个微小变化时，像素残差如何变化”。这需要在群上做微积分。
+
+\subsection{李群的定义}
+
+\begin{definition}[李群]
+一个李群$G$同时具有以下三种结构：
+\begin{enumerate}
+    \item $G$是一个群；
+    \item $G$是一个光滑流形；
+    \item 群乘法与求逆都是光滑映射。
+\end{enumerate}
+具体地，令
+\[
+    m:G\times G\to G,\qquad m(g,h)=gh,
+\]
+以及
+\[
+    \iota:G\to G,\qquad \iota(g)=g^{-1}.
+\]
+要求$m$和$\iota$都是光滑映射。
+\end{definition}
+
+这里的“乘法光滑”是指整个二元映射$(g,h)\mapsto gh$光滑，而不只是固定一个$g$以后$h\mapsto gh$光滑。正是这个条件保证群运算可以与切向量、微分和局部线性化兼容。
+
+\begin{lieexample}{为什么SLAM需要李群}
+若位姿空间只有群结构，我们可以写
+\[
+    g_{\mathrm{new}}=g_1g_2,
+\]
+却还不能讨论位姿变化对观测模型的导数。成为光滑流形后，每个$g\in G$都有切空间$T_gG$，特别是单位元$e$处有$T_eG$。这个空间将成为李代数：
+\[
+    \mathfrak g:=T_eG,
+    \qquad
+    \se(3):=T_e\SE(3).
+\]
+李代数是线性空间，而$G$通常不是全局线性空间。因此$g\in G$与$\xi\in\mathfrak g$之间不能直接写$g+\xi$；它们甚至不属于同一个数学对象。
+\end{lieexample}
+
+%——————————————————————————————————%
+
+\section{常见李群例子}
+
+\subsection{平移群$\R^n$}
+
+\begin{definition}[平移李群]
+$(\R^n,+)$在向量加法下是一个交换李群。单位元为$0$，$x$的逆元为$-x$。
+\end{definition}
+
+\begin{lieexample}{为什么平移可以直接相加}
+平移群的每个切空间都可以通过平移自然识别为$\R^n$：
+\[
+    T_x\R^n\simeq\R^n.
+\]
+因此平移状态可以直接更新为
+\[
+    t_{\mathrm{new}}=t+\delta t.
+\]
+这只是线性平移群的特殊性，并不意味着旋转也可以用同样方式更新。
+\end{lieexample}
+
+\subsection{圆群$S^1\simeq U(1)$}
+
+\begin{definition}[圆群]
+单位圆
+\[
+    S^1=\{z\in\C:|z|=1\}
+\]
+在复数乘法下构成一个交换李群，并与$U(1)$同构。
+\end{definition}
+
+若用角度$\theta$表示圆上的点，则
+\[
+    z=e^{\mathrm i\theta},
+    \qquad
+    \theta\sim\theta+2\pi k,\quad k\in\Z.
+\]
+所以$S^1$不是$\R$：角度坐标只能是局部坐标，而不是无歧义的全局坐标。这是旋转群不能被单个全局实数坐标描述的最简单例子。
+
+\subsection{一般线性群$\mathrm{GL}(n,\R)$}
+
+\begin{definition}[一般线性群]
+\[
+    \mathrm{GL}(n,\R)
+    =\{A\in\R^{n\times n}:\det A\neq0\}
+\]
+是所有可逆线性变换在矩阵乘法下构成的群。
+\end{definition}
+
+由于行列式是连续函数，且
+\[
+    \mathrm{GL}(n,\R)
+    =\det^{-1}(\R\setminus\{0\}),
+\]
+而$\R\setminus\{0\}$是开集，所以$\mathrm{GL}(n,\R)$是$\R^{n^2}$中的开子流形。$\SO(3)$和$\SE(3)$也可以嵌入某个矩阵空间，但它们不是任意矩阵的集合，而是带有特殊约束和群结构的低维流形。
+
+%——————————————————————————————————%
+
+\section{正交群、$\SO(3)$与伪内积}
+
+\subsection{伪内积}
+
+\begin{definition}[伪内积]
+设$V$是实向量空间。一个伪内积是一个对称、双线性且非退化的形式
+\[
+    B:V\times V\to\R.
+\]
+非退化性指
+\[
+    B(v,w)=0,\quad\forall w\in V
+    \quad\Longrightarrow\quad v=0.
+\]
+\end{definition}
+
+非退化不等于正定。一般不能由$B(v,v)=0$推出$v=0$。
+
+\begin{lieexample}{非退化但不正定的例子}
+在$\R^2$上定义
+\[
+    B((x,y),(x',y'))=xx'-yy'.
+\]
+它是非退化的，但
+\[
+    B((1,1),(1,1))=0,
+    \qquad (1,1)\neq0.
+\]
+因此“没有非零向量与所有向量正交”与“每个非零向量自身内积为正”是两个不同性质。
+\end{lieexample}
+
+\subsection{$O(p,q)$与$\SO(3)$}
+
+在适当基下，非退化对称双线性型可以写成
+\[
+    J_{p,q}
+    =\operatorname{diag}(\underbrace{1,\ldots,1}_{p\text{个}},
+    \underbrace{-1,\ldots,-1}_{q\text{个}}).
+\]
+保持该形式不变的变换组成
+\[
+    O(p,q)
+    =\{A\in\mathrm{GL}(p+q,\R):A^\top J_{p,q}A=J_{p,q}\}.
+\]
+当$q=0$时得到正交群
+\[
+    O(n)=\{A\in\mathrm{GL}(n,\R):A^\top A=I\}.
+\]
+其行列式为$+1$的部分是特殊正交群。特别地，SLAM中最重要的旋转群为
+\[
+    \SO(3)=\{R\in\R^{3\times3}:R^\top R=I,\ \det R=1\}.
+\]
+它表示保持三维欧氏内积和空间方向的纯旋转。
+
+%——————————————————————————————————%
+
+\section{左、右平移：从单位元到任意位姿}
+
+这一节处在后续构造的关键连接处：
+\[
+    \text{群元素的左、右平移}
+    \longrightarrow
+    \text{平移是微分同胚}
+    \longrightarrow
+    \text{其微分是切空间同构}
+\]
+\[
+    \longrightarrow
+    \text{单位元处的切向量可搬到任意点}
+    \longrightarrow
+    \text{左、右平凡化与Adjoint}.
+\]
+要理解这条链，必须始终区分群中的点、群上的曲线以及曲线的切向量。
+
+\subsection{先分清群元素、曲线与切向量}
+
+设$G$是李群，$e\in G$是单位元，并固定$g\in G$。本节同时出现三类对象：
+\[
+    g,h,\gamma(t)\in G,
+\]
+它们是群中的点；
+\[
+    \gamma:(-\varepsilon,\varepsilon)\to G
+\]
+是群上的一条光滑曲线；而
+\[
+    \dot\gamma(0)\in T_{\gamma(0)}G
+\]
+是曲线在$t=0$处的速度，即一个切向量。
+
+特别地，若
+\[
+    \gamma(0)=e,
+\]
+则
+\[
+    \dot\gamma(0)\in T_eG=\mathfrak g.
+\]
+因此，李代数元素$\xi\in\mathfrak g$可以用曲线表示：选择一条满足
+\[
+    \gamma(0)=e,
+    \qquad
+    \dot\gamma(0)=\xi
+\]
+的曲线，$\xi$就是该曲线从单位元出发时的无穷小运动方向。这里$\xi$是切向量，不是群元素；一般不能写$g\xi$作为抽象群乘法，也不能把$\xi$与$g$放在同一个对象类型中比较。
+
+\subsection{左、右平移首先是群上的映射}
+
+\begin{definition}[左平移与右平移]
+设$G$是群，固定$g\in G$。定义
+\[
+    L_g:G\to G,
+    \qquad
+    L_g(h)=gh,
+\]
+以及
+\[
+    R_g:G\to G,
+    \qquad
+    R_g(h)=hg.
+\]
+这里$g$是固定参数，$h$是映射的输入。名称中的“左”和“右”表示固定元素$g$位于输入$h$的哪一侧。
+\end{definition}
+
+由单位元公理，
+\[
+    L_g(e)=ge=g,
+    \qquad
+    R_g(e)=eg=g.
+\]
+所以“左、右平移把单位元送到$g$”的准确含义是：两个映射都把输入点$e$映射为输出点$g$。这一步只使用群的单位元公理，还没有涉及切向量或微分。
+
+\begin{proposition}[左、右平移的双射与微分同胚性]
+在任意群中，$L_g$与$R_g$都是双射，并且
+\[
+    L_g^{-1}=L_{g^{-1}},
+    \qquad
+    R_g^{-1}=R_{g^{-1}}.
+\]
+若$G$进一步是李群，则$L_g$与$R_g$都是微分同胚。
+\end{proposition}
+
+\begin{proof}
+由结合律、单位元和逆元公理，
+\[
+\begin{aligned}
+    L_{g^{-1}}(L_g(h))
+    &=g^{-1}(gh)=(g^{-1}g)h=h,\\
+    L_g(L_{g^{-1}}(h))
+    &=g(g^{-1}h)=(gg^{-1})h=h.
+\end{aligned}
+\]
+所以$L_g^{-1}=L_{g^{-1}}$。右平移同理：
+\[
+\begin{aligned}
+    R_{g^{-1}}(R_g(h))
+    &=(hg)g^{-1}=h(gg^{-1})=h,\\
+    R_g(R_{g^{-1}}(h))
+    &=(hg^{-1})g=h(g^{-1}g)=h.
+\end{aligned}
+\]
+若$G$是李群，固定群乘法的一个变量所得映射仍然光滑，故$L_g,R_g$光滑；其逆映射$L_{g^{-1}},R_{g^{-1}}$也光滑，所以它们是微分同胚。
+\end{proof}
+
+\begin{remark}
+平移是流形$G$到自身的微分同胚，但通常不是群同态。例如一般有
+\[
+    L_g(h_1h_2)=g(h_1h_2),
+\]
+而
+\[
+    L_g(h_1)L_g(h_2)=gh_1gh_2.
+\]
+二者通常不相等。后续使用的是平移的微分同胚性质，而不是群同态性质。
+\end{remark}
+
+\subsection{光滑平移如何诱导切空间映射}
+
+一般地，若$F:M\to N$是光滑映射，则它在$p\in M$处的微分为
+\[
+    dF_p:T_pM\to T_{F(p)}N.
+\]
+因此，$L_g$和$R_g$在任意$h\in G$处分别诱导
+\[
+    \boxed{
+    (dL_g)_h:T_hG\to T_{gh}G,
+    }
+\]
+以及
+\[
+    \boxed{
+    (dR_g)_h:T_hG\to T_{hg}G.
+    }
+\]
+第一条箭头把$h$处的切向量变成$gh$处的切向量；第二条箭头把$h$处的切向量变成$hg$处的切向量。定义域与陪域随基点一起变化，不能只把它们看成没有所属空间的矩阵乘法。
+
+特别取$h=e$，由$ge=eg=g$得到
+\[
+    \boxed{
+    (dL_g)_e:T_eG\to T_gG,
+    \qquad
+    (dR_g)_e:T_eG\to T_gG.
+    }
+\]
+这两条线性映射正是把单位元处的标准局部运动方向搬到当前群元素$g$处的工具。
+
+\subsection{推前的曲线定义：先映射曲线，再取速度}
+
+微分搬运切向量的含义来自切向量的曲线定义。设
+\[
+    F:M\to N,
+    \qquad
+    \gamma:(-\varepsilon,\varepsilon)\to M,
+    \qquad
+    \gamma(0)=p.
+\]
+将整条曲线映入$N$，得到$F\circ\gamma$。微分定义为
+\[
+    \boxed{
+    dF_p\bigl(\dot\gamma(0)\bigr)
+    =\left.\frac{d}{dt}\right|_{t=0}
+    F(\gamma(t)).
+    }
+\]
+因此，推前并不是把一个孤立箭头凭空移动到另一点，而是：先把代表该切向量的整条曲线通过$F$映射过去，再取映射后曲线的初始速度。
+
+\subsection{左平移后的曲线与速度}
+
+取一条从单位元出发的曲线
+\[
+    \gamma:(-\varepsilon,\varepsilon)\to G,
+    \qquad
+    \gamma(0)=e,
+    \qquad
+    \dot\gamma(0)=\xi\in\mathfrak g.
+\]
+对整条曲线施加左平移：
+\[
+    \Gamma(t)
+    :=L_g(\gamma(t))
+    =g\gamma(t).
+\]
+其初始点为
+\[
+    \Gamma(0)=g\gamma(0)=ge=g,
+\]
+而初始速度由推前定义给出：
+\[
+\begin{aligned}
+    \dot\Gamma(0)
+    &=\left.\frac{d}{dt}\right|_0L_g(\gamma(t))\\
+    &=(dL_g)_e\dot\gamma(0)\\
+    &=(dL_g)_e\xi\in T_gG.
+\end{aligned}
+\]
+所以
+\[
+    \boxed{
+    \xi\in T_eG
+    \xrightarrow{\ (dL_g)_e\ }
+    (dL_g)_e\xi\in T_gG.
+    }
+\]
+搬运的是切向量$\xi$，而不是把$\xi$当作群元素与$g$相乘。
+
+整条关系可以压缩为
+\[
+\begin{array}{ccccc}
+(-\varepsilon,\varepsilon)
+&\xrightarrow{\ \gamma\ }&
+G
+&\xrightarrow{\ L_g\ }&
+G\\
+t&\longmapsto&\gamma(t)&\longmapsto&g\gamma(t),
+\end{array}
+\]
+以及在$t=0$处的切空间箭头
+\[
+    \dot\gamma(0)\in T_eG
+    \xrightarrow{\ (dL_g)_e\ }
+    \dot\Gamma(0)\in T_gG.
+\]
+
+\subsection{右平移后的曲线与速度}
+
+对同一条$\gamma$施加右平移，定义
+\[
+    \widetilde\Gamma(t)
+    :=R_g(\gamma(t))
+    =\gamma(t)g.
+\]
+同样有
+\[
+    \widetilde\Gamma(0)=\gamma(0)g=eg=g,
+\]
+以及
+\[
+\begin{aligned}
+    \dot{\widetilde\Gamma}(0)
+    &=\left.\frac{d}{dt}\right|_0R_g(\gamma(t))\\
+    &=(dR_g)_e\dot\gamma(0)\\
+    &=(dR_g)_e\xi\in T_gG.
+\end{aligned}
+\]
+即
+\[
+    \boxed{
+    \xi\in T_eG
+    \xrightarrow{\ (dR_g)_e\ }
+    (dR_g)_e\xi\in T_gG.
+    }
+\]
+
+左、右平移都把曲线的基点从$e$送到$g$，但它们映出的曲线分别是$g\gamma(t)$与$\gamma(t)g$。在非交换李群中，这两条曲线一般不同，因此即使从同一个$\xi\in T_eG$出发，也通常有
+\[
+    (dL_g)_e\xi
+    \neq
+    (dR_g)_e\xi.
+\]
+
+\subsection{为什么平移的微分是线性同构}
+
+映射层面已经有
+\[
+    L_{g^{-1}}\circ L_g=\operatorname{id}_G,
+    \qquad
+    L_g\circ L_{g^{-1}}=\operatorname{id}_G.
+\]
+对第一式在$e$处求微分，链式法则给出
+\[
+\begin{aligned}
+    d(L_{g^{-1}}\circ L_g)_e
+    &=(dL_{g^{-1}})_{L_g(e)}\circ(dL_g)_e\\
+    &=(dL_{g^{-1}})_g\circ(dL_g)_e\\
+    &=\operatorname{id}_{T_eG}.
+\end{aligned}
+\]
+对第二式在$g$处求微分，得到
+\[
+    (dL_g)_e\circ(dL_{g^{-1}})_g
+    =\operatorname{id}_{T_gG}.
+\]
+因此
+\[
+    \boxed{
+    \bigl((dL_g)_e\bigr)^{-1}
+    =(dL_{g^{-1}})_g.
+    }
+\]
+完全同理，
+\[
+    \boxed{
+    \bigl((dR_g)_e\bigr)^{-1}
+    =(dR_{g^{-1}})_g.
+    }
+\]
+所以$(dL_g)_e$与$(dR_g)_e$不仅是线性映射，而且是$T_eG$与$T_gG$之间的线性同构。单位元处的每个方向都能唯一搬到$g$处，$g$处的每个切向量也能唯一搬回单位元。
+
+\subsection{欧氏加法群中的检查}
+
+把$(\R^n,+)$看作李群。其单位元为$0$，左、右平移为
+\[
+    L_x(u)=x+u,
+    \qquad
+    R_x(u)=u+x.
+\]
+由于加法交换，$L_x=R_x$。对任意曲线$\gamma$，
+\[
+    \frac{d}{dt}\bigl(x+\gamma(t)\bigr)
+    =\dot\gamma(t)
+    =\frac{d}{dt}\bigl(\gamma(t)+x\bigr),
+\]
+故在任意$u\in\R^n$处
+\[
+    \boxed{
+    (dL_x)_u=(dR_x)_u
+    =\operatorname{id}_{\R^n}.
+    }
+\]
+特别地，
+\[
+    (dL_x)_0\xi
+    =(dR_x)_0\xi
+    =\xi.
+\]
+欧氏空间中的切向量搬运并非不存在，而是平移的微分恰好为恒等映射，因此高数中通常可以直接把所有$T_x\R^n$与同一个$\R^n$识别起来。
+
+\subsection{矩阵李群中的检查}
+
+若$G$是矩阵李群，单位元记为$I$。取矩阵值曲线
+\[
+    \gamma(0)=I,
+    \qquad
+    \dot\gamma(0)=\xi\in\mathfrak g.
+\]
+在环境矩阵空间中对左平移曲线求导：
+\[
+    \left.\frac{d}{dt}\right|_0g\gamma(t)
+    =g\dot\gamma(0)
+    =g\xi.
+\]
+因此
+\[
+    \boxed{
+    (dL_g)_I\xi=g\xi.
+    }
+\]
+右平移同理：
+\[
+    \boxed{
+    (dR_g)_I\xi=\xi g.
+    }
+\]
+一般有$g\xi\neq\xi g$，所以左右搬运通常不同。这里的矩阵乘法来自所选矩阵表示；$g\xi$与$\xi g$通常不属于$T_IG=\mathfrak g$，而是同属$T_gG$：
+\[
+    T_gG=g\mathfrak g=\mathfrak g g.
+\]
+这正是不能把单位元处的李代数矩阵与$g$处的切矩阵混为同一对象的典型位置。
+
+\subsection{从切向量搬运走向平凡化与Adjoint}
+
+固定一个实际切向量$v_g\in T_gG$。利用左右平移微分的逆，可以把它以两种方式搬回单位元：
+\[
+    \xi^{(L)}
+    :=(dL_{g^{-1}})_g v_g,
+    \qquad
+    \xi^{(R)}
+    :=(dR_{g^{-1}})_g v_g.
+\]
+于是
+\[
+    \boxed{
+    v_g
+    =(dL_g)_e\xi^{(L)}
+    =(dR_g)_e\xi^{(R)}.
+    }
+\]
+同一个$g$处切向量，因为搬回单位元的规则不同，一般得到两个不同的李代数表示。后文将证明它们满足
+\[
+    \xi^{(R)}=\Ad_g\xi^{(L)}.
+\]
+在机器人学的某些位姿方向约定下，$\xi^{(L)}$与$\xi^{(R)}$常被称为body与spatial表示；但术语会随变换方向而变化，可靠的定义仍是上面的平移微分公式。
+
+本节可以压缩为四条必须记住的关系：
+\[
+    L_g(e)=R_g(e)=g,
+\]
+\[
+    (dL_g)_e,(dR_g)_e:T_eG\to T_gG,
+\]
+\[
+    (dL_g)_e\xi
+    =\left.\frac{d}{dt}\right|_0g\gamma(t),
+    \qquad
+    \dot\gamma(0)=\xi,
+\]
+以及
+\[
+    (dR_g)_e\xi
+    =\left.\frac{d}{dt}\right|_0\gamma(t)g.
+\]
+下一节将用$(dL_g)_e\xi$在每个$g$处定义左不变向量场；后面的Adjoint则比较同一$v_g\in T_gG$的两种单位元表示。
+
+%——————————————————————————————————%
+
+\section{左不变向量场与李代数}
+
+\subsection{左不变向量场}
+
+\begin{definition}[向量场]
+李群$G$上的向量场是在每个$h\in G$指定一个切向量$X_h\in T_hG$的规则，记为$X:h\mapsto X_h$。
+\end{definition}
+
+\begin{definition}[左不变向量场]
+若向量场$X$满足对任意$g,h\in G$
+\[
+    (dL_g)_h(X_h)=X_{gh},
+\]
+则称$X$为左不变向量场。
+\end{definition}
+
+直观上，在$h$处沿$X_h$运动，再左乘$g$，得到的方向恰好等于向量场在$gh$处规定的方向。整个向量场由群乘法从一个位置复制到所有位置。
+
+\subsection{由单位元方向构造全局向量场}
+
+\begin{proposition}[单位元切向量生成左不变向量场]
+给定$\xi\in T_eG$，定义
+\[
+    X^\xi_g:=(dL_g)_e(\xi),
+    \qquad g\in G.
+\]
+则$X^\xi$是$G$上的左不变光滑向量场。
+\end{proposition}
+
+\begin{proof}
+对任意$h,g\in G$，由微分链式法则，
+\[
+\begin{aligned}
+    (dL_h)_g(X^\xi_g)
+    &=(dL_h)_g\bigl((dL_g)_e\xi\bigr)\\
+    &=d(L_h\circ L_g)_e\xi.
+\end{aligned}
+\]
+而
+\[
+    (L_h\circ L_g)(k)=h(gk)=(hg)k=L_{hg}(k),
+\]
+所以$L_h\circ L_g=L_{hg}$，从而
+\[
+    (dL_h)_g(X^\xi_g)=(dL_{hg})_e\xi=X^\xi_{hg}.
+\]
+这正是左不变性。
+\end{proof}
+
+\begin{lieexample}{一个单位元方向如何复制到整个群}
+\[
+    \xi\in T_eG
+    \quad\xrightarrow{\ (dL_g)_e\ }\quad
+    X^\xi_g\in T_gG,
+    \qquad\forall g\in G.
+\]
+这里$\xi$是单位元处的标准局部运动模板，而$X^\xi_g$是该模板被搬运到$g$处后的瞬时速度。对SLAM而言，$\se(3)$中的一个元素代表一类标准刚体瞬时运动，左平移负责把它解释为任意当前位姿处的允许速度。
+\end{lieexample}
+
+\subsection{李代数等于左不变向量场的原型空间}
+
+记所有左不变光滑向量场组成的向量空间为
+\[
+    \mathfrak X_L(G)=\{X:X\text{是}G\text{上的左不变光滑向量场}\}.
+\]
+
+为了读懂下面的同构关系，先把各个记号所代表的对象分开。这里$e,g$是群中的点，
+而$\xi$、$X_g^\xi$是切向量；$X^\xi$则不是一个向量，而是给每个群点指定
+一个切向量的整体规则。
+\begin{center}
+\renewcommand{\arraystretch}{1.35}
+\begin{tabular}{c|c|p{0.49\textwidth}}
+    记号 & 所在空间 & 直观含义 \\
+    \hline
+    $e$ & $G$ & 群的单位元，是定义李代数和“标准局部运动”的参考点。 \\
+    $g$ & $G$ & 任意一个群点；在SLAM中可以理解为当前位姿。 \\
+    $\xi$ & $T_eG=\mathfrak g$ & 单位元处的一根无穷小运动箭头，也就是一个运动模板。 \\
+    $X^\xi$ & $\mathfrak X_L(G)$ & 由$\xi$生成的左不变向量场；上标$\xi$表示它由哪个模板生成。 \\
+    $X_g^\xi$ & $T_gG$ & 向量场$X^\xi$在$g$处的实际速度箭头，满足$X_g^\xi=(dL_g)_e\xi$。 \\
+    $j$ & $T_eG\to\mathfrak X_L(G)$ & 把一个单位元处的模板扩展成整个群上的左不变向量场的对应规则。 \\
+\end{tabular}
+\end{center}
+
+特别地，$X^\xi_g$中的下标$g$表示“在点$g$处取值”，不是给向量增加一个坐标下标；
+$X^\xi$中的上标也不是幂。符号$\cong$表示向量空间同构：$T_eG$和
+$\mathfrak X_L(G)$未必是同一个集合，但它们包含完全相同的线性信息，可以一一对应，
+并且保持加法和数乘。
+
+\begin{theorem}[单位元切空间与左不变向量场]
+映射
+\[
+    j:T_eG\to\mathfrak X_L(G),
+    \qquad
+    j(\xi)=X^\xi,
+\]
+是向量空间同构。因此
+\[
+    T_eG\cong\mathfrak X_L(G).
+\]
+\end{theorem}
+
+\begin{proof}
+若$j(\xi)=j(\eta)$，则在单位元处有
+\[
+    \xi=(dL_e)_e\xi=X^\xi_e=X^\eta_e=(dL_e)_e\eta=\eta,
+\]
+故$j$单射。反之，任取左不变向量场$X$，令$\xi=X_e$。由左不变性，对任意$g\in G$，
+\[
+    X_g=(dL_g)_e(X_e)=(dL_g)_e\xi=X^\xi_g.
+\]
+所以$X=j(\xi)$，$j$满射。
+\end{proof}
+
+这个定理的直观图像是：左不变向量场不是在每个群点重新自由选择箭头，而是只需在
+单位元处选定一根箭头$\xi$，然后用左平移把它复制到所有位置：
+\[
+\xi\in T_eG
+\quad\xrightarrow{\ (dL_g)_e\ }
+X_g^\xi\in T_gG,
+\qquad g\in G.
+\]
+因此，给定一个左不变向量场$X$时，$X_e$就包含了恢复整个$X$所需的全部信息：
+\[
+    X_g=(dL_g)_e(X_e).
+\]
+在平移群$(\R^n,+)$中，$e=0$且$(dL_g)_e$是恒等映射，所以一个模板$\xi$
+被复制成处处相同的常向量场；在$\SE(3)$中，同样的复制规则会把一个标准刚体瞬时
+运动解释为每个位姿处的合法瞬时速度。
+
+\begin{definition}[李代数]
+李群$G$的李代数是单位元处的切空间配以由左不变向量场诱导的李括号，记为
+\[
+    \mathfrak g:=T_eG.
+\]
+\end{definition}
+
+这说明李代数并不只是“单位元附近的一堆向量”。它等价于群上所有左不变瞬时运动的原型空间。对SLAM而言，
+\[
+    \se(3)=T_e\SE(3)
+\]
+就是所有标准刚体瞬时运动的线性空间。
+
+%——————————————————————————————————%
+
+\section{李括号：局部运动的非交换性}
+
+\subsection{向量场的李括号}
+
+\begin{definition}[向量场李括号]
+把向量场看作作用在光滑函数上的方向导数算子。对光滑向量场$X,Y$，定义
+\[
+    [X,Y](f)=X(Yf)-Y(Xf),
+    \qquad f\in C^\infty(G).
+\]
+\end{definition}
+
+几何上，$[X,Y]$刻画先沿$X$做无穷小运动、再沿$Y$运动，与先沿$Y$再沿$X$运动之间的差异。若$[X,Y]=0$，两种运动在局部可以交换；若$[X,Y]\neq0$，交换顺序会产生额外方向。
+
+\begin{proposition}[左不变向量场对李括号封闭]
+若$X,Y$都是左不变向量场，则$[X,Y]$也是左不变向量场。
+\end{proposition}
+
+\begin{proof}
+左不变性等价于对任意$g\in G$和$f\in C^\infty(G)$有
+\[
+    X(f\circ L_g)=(Xf)\circ L_g,
+    \qquad
+    Y(f\circ L_g)=(Yf)\circ L_g.
+\]
+代入李括号定义，
+\[
+\begin{aligned}
+    \bigl[X,Y\bigr](f\circ L_g)
+    &=X\bigl(Y(f\circ L_g)\bigr)-Y\bigl(X(f\circ L_g)\bigr)\\
+    &=X\bigl((Yf)\circ L_g\bigr)-Y\bigl((Xf)\circ L_g\bigr)\\
+    &=([X,Y]f)\circ L_g.
+\end{aligned}
+\]
+因此$[X,Y]$左不变。
+\end{proof}
+
+\begin{definition}[李代数层面的李括号]
+对$\xi,\eta\in\mathfrak g=T_eG$，令$X^\xi,X^\eta$为对应的左不变向量场，定义
+\[
+    [\xi,\eta]_{\mathfrak g}:=[X^\xi,X^\eta]_e.
+\]
+\end{definition}
+
+\begin{theorem}[李代数公理]
+李括号满足双线性、反对称性和Jacobi恒等式：
+\[
+    [a\xi+b\eta,\zeta]
+    =a[\xi,\zeta]+b[\eta,\zeta],
+\]
+\[
+    [\xi,\eta]=-[\eta,\xi],
+    \qquad
+    [\xi,\xi]=0,
+\]
+以及
+\[
+    [\xi,[\eta,\zeta]]
+    +[\eta,[\zeta,\xi]]
+    +[\zeta,[\xi,\eta]]=0.
+\]
+这些性质来自向量场方向导数交换子的固有结构。
+\end{theorem}
+
+%——————————————————————————————————%
+
+\section{指数映射：从瞬时运动到有限位姿}
+
+\subsection{积分曲线定义指数映射}
+
+给定$\xi\in\mathfrak g=T_eG$，先用左平移构造左不变向量场
+\[
+    X^\xi_g=(dL_g)_e\xi.
+\]
+
+\begin{definition}[积分曲线]
+由$\xi$生成的积分曲线是曲线$\gamma_\xi:I\to G$，满足内蕴微分方程
+\[
+    \gamma_\xi(0)=e,
+    \qquad
+    \dot\gamma_\xi(t)=X^\xi_{\gamma_\xi(t)}.
+\]
+其中$\dot\gamma_\xi(t)\in T_{\gamma_\xi(t)}G$是曲线在当前点处的切向量，右侧是把同一个单位元方向$\xi$搬到当前位置后的速度。
+\end{definition}
+
+这个方程是坐标无关的：它只使用曲线的切向量、左平移和向量场。对有限维李群，左不变向量场是完备的，因此积分曲线可对所有$t\in\R$定义。
+
+下面把同一个方程在矩阵李群中展开。这个展开不是另起一个定义，而是把抽象切向量放进矩阵空间后，写出同一条积分曲线的具体微分方程。
+
+\begin{lieexample}{矩阵李群中的左不变微分方程}
+设$G\subseteq\R^{n\times n}$是一个矩阵李群，单位元为$I$，并令
+\[
+    \xi\in T_IG=\mathfrak g.
+\]
+这里的$\xi$在矩阵表示下本身就是一个$n\times n$矩阵，但它的身份仍然是单位元处的切向量，而不是$G$中的群元素。
+
+矩阵群上的左平移为
+\[
+    L_g(h)=gh.
+\]
+取一条表示$\xi$的曲线
+\[
+    \alpha:(-\varepsilon,\varepsilon)\to G,
+    \qquad
+    \alpha(0)=I,
+    \qquad
+    \dot\alpha(0)=\xi.
+\]
+根据微分的曲线定义，
+\[
+\begin{aligned}
+    (dL_g)_I\xi
+    &=\left.\frac{d}{ds}\right|_{s=0}L_g(\alpha(s))\\
+    &=\left.\frac{d}{ds}\right|_{s=0}g\alpha(s)\\
+    &=g\dot\alpha(0)\\
+    &=g\xi.
+\end{aligned}
+\]
+因此，矩阵李群中的左不变向量场可以写成
+\[
+    \boxed{X^\xi_g=(dL_g)_I\xi=g\xi.}
+\]
+
+这里的$g\xi$应理解为环境矩阵空间中的乘法：$g$把单位元处的切向量$\xi$搬到了$g$处。它不是抽象地把群元素$g$与李代数元素$\xi$当作同一类对象相乘。矩阵表示下有
+\[
+    T_gG=g\mathfrak g,
+\]
+所以$g\xi$正好属于$T_gG$，与$\dot\gamma_\xi(t)$属于同一个切空间。
+
+将$g$替换为曲线当前所在的群元素$\gamma_\xi(t)$，积分曲线方程变为
+\[
+    \boxed{
+    \dot\gamma_\xi(t)=\gamma_\xi(t)\xi,
+    \qquad
+    \gamma_\xi(0)=I.
+    }
+\]
+这与标量方程$\dot x(t)=x(t)a$具有相同的形式，只是未知量从一个数变成了矩阵。左侧是矩阵曲线逐项求导，右侧是当前矩阵与固定矩阵$\xi$的乘积。
+\end{lieexample}
+
+现在在环境线性空间$\R^{n\times n}$中定义矩阵指数
+\[
+    \exp_{\mathrm{mat}}(t\xi)
+    :=\sum_{k=0}^{\infty}\frac{t^k}{k!}\xi^k
+    =I+t\xi+\frac{t^2}{2!}\xi^2+\cdots.
+\]
+矩阵指数级数在所有$t\in\R$上收敛，并且可以逐项求导：
+\[
+\begin{aligned}
+    \frac{d}{dt}\exp_{\mathrm{mat}}(t\xi)
+    &=\sum_{k=1}^{\infty}\frac{k t^{k-1}}{k!}\xi^k\\
+    &=\sum_{k=0}^{\infty}\frac{t^k}{k!}\xi^{k+1}\\
+    &=\left(\sum_{k=0}^{\infty}\frac{t^k}{k!}\xi^k\right)\xi\\
+    &=\exp_{\mathrm{mat}}(t\xi)\xi.
+\end{aligned}
+\]
+同时
+\[
+    \exp_{\mathrm{mat}}(0)=I.
+\]
+因此$\exp_{\mathrm{mat}}(t\xi)$满足上面的矩阵初值问题。另一方面，内蕴积分曲线$\gamma_\xi(t)$作为矩阵值曲线，也满足同一个$\R^{n\times n}$中的线性常微分方程。由矩阵初值问题解的唯一性，得到
+\[
+    \boxed{
+    \gamma_\xi(t)=\exp_{\mathrm{mat}}(t\xi).
+    }
+\]
+这个论证同时说明了$\exp_{\mathrm{mat}}(t\xi)\in G$：它原本只是环境矩阵空间中的解，但由于它等于取值于$G$的内蕴积分曲线，所以最终仍然落在矩阵李群$G$中。
+
+\begin{definition}[指数映射]
+李群$G$的指数映射定义为
+\[
+    \Exp:\mathfrak g\to G,
+    \qquad
+    \Exp(t\xi):=\gamma_\xi(t).
+\]
+特别地，$\Exp(\xi)=\gamma_\xi(1)$。
+\end{definition}
+
+这里$\xi$是单位元处的恒定局部运动模板，$\Exp(t\xi)$是从单位元出发持续该运动$t$个单位时间所到达的群点。于是，对矩阵李群，抽象指数映射与矩阵指数的关系是
+\[
+    \boxed{
+    \Exp(t\xi)=\exp_{\mathrm{mat}}(t\xi),
+    \qquad
+    \Exp(\xi)=\exp_{\mathrm{mat}}(\xi).
+    }
+\]
+左边的$\Exp$强调它是由李群上的积分曲线定义的几何映射，右边的$\exp_{\mathrm{mat}}$强调它是矩阵幂级数；二者在选定矩阵表示后给出同一个群元素。
+
+这里还要把三种“不同”明确区分开。它们在SLAM中都会出现，但含义并不相同：
+\begin{enumerate}
+    \item 换一个李群，群乘法、李代数以及指数映射本身都会改变，因此显式公式可能完全不同；
+    \item 同一个李群换一个矩阵表示，或给李代数换一组坐标，公式的外观会改变，但抽象的指数映射没有改变；
+    \item 同一个群元素采用左不变或右不变速度约定时，微分方程的乘法顺序不同。对固定的常量$\xi$，两种方程仍产生同一条单参数子群，但对时变速度一般不能混用。
+\end{enumerate}
+
+更正式地，指数映射首先由群结构决定：
+\[
+    \Exp_G:\mathfrak g\to G,
+    \qquad
+    \Exp_G(\xi)=\gamma_\xi(1).
+\]
+若$\varrho:G\to\mathrm{GL}(N,\R)$是同一个李群的另一种矩阵表示，则其单位元处的微分
+\[
+    d\varrho_e:\mathfrak g\to\mathfrak{gl}(N,\R)
+\]
+把抽象李代数元素变成矩阵，并满足
+\[
+    \boxed{
+    \varrho\bigl(\Exp_G(\xi)\bigr)
+    =\exp_{\mathrm{mat}}\bigl(d\varrho_e(\xi)\bigr).
+    }
+\]
+所以矩阵指数的具体大小、矩阵块结构以及坐标向量的排列都可能改变，但它们表示的是同一个几何群元素。最常见的简写是把$G$直接看成矩阵群，此时$\varrho$是包含映射，$d\varrho_e(\xi)=\xi$，上式就退化为前面的
+\[
+    \Exp_G(\xi)=\exp_{\mathrm{mat}}(\xi).
+\]
+
+\begin{lieexample}{从平移到刚体运动：几种常见指数映射}
+\textbf{（1）平移群$\R^n$。}
+
+群运算是加法，单位元为$0$。李代数可以自然识别为$\R^n$，对$\rho\in\R^n$有
+\[
+    \dot x(t)=\rho,
+    \qquad x(0)=0,
+\]
+因此$x(t)=t\rho$，从而
+\[
+    \boxed{\Exp_{\R^n}(\rho)=\rho.}
+\]
+纯平移中的指数映射就是恒等映射。若把平移嵌入齐次矩阵，则
+\[
+    \rho\longmapsto
+    \begin{bmatrix}I_n&\rho\\0&1\end{bmatrix},
+    \qquad
+    d\varrho_0(\rho)=
+    \begin{bmatrix}0&\rho\\0&0\end{bmatrix},
+\]
+而
+\[
+    \exp_{\mathrm{mat}}
+    \begin{bmatrix}0&\rho\\0&0\end{bmatrix}
+    =
+    \begin{bmatrix}I_n&\rho\\0&1\end{bmatrix},
+\]
+这说明“恒等映射”和“齐次矩阵指数”只是同一个平移群的两种表示。
+
+\textbf{（2）二维旋转群$\SO(2)$。}
+
+将标量角速度$\theta$识别为
+\[
+    \theta^\wedge=
+    \begin{bmatrix}0&-\theta\\\theta&0\end{bmatrix}
+    \in\so(2),
+\]
+则
+\[
+    \Exp_{\SO(2)}(\theta^\wedge)
+    =\exp_{\mathrm{mat}}(\theta^\wedge)
+    =
+    \begin{bmatrix}
+        \cos\theta&-\sin\theta\\
+        \sin\theta&\cos\theta
+    \end{bmatrix}.
+\]
+在已经选定$\so(2)\simeq\R$的坐标识别后，常把它简写成$\Exp(\theta)=R(\theta)$。严格来说，指数映射的输入是李代数元素$\theta^\wedge$，不是群中的旋转矩阵。
+
+\textbf{（3）三维旋转群$\SO(3)$。}
+
+令旋转向量$\phi\in\R^3$，$\theta=\|\phi\|$，并用帽算子表示
+\[
+    \phi^\wedge v=\phi\times v,
+    \qquad
+    \phi^\wedge=
+    \begin{bmatrix}
+        0&-\phi_3&\phi_2\\
+        \phi_3&0&-\phi_1\\
+        -\phi_2&\phi_1&0
+    \end{bmatrix}.
+\]
+Rodrigues公式给出
+\[
+    \boxed{
+    \Exp_{\SO(3)}(\phi^\wedge)
+    =I+\frac{\sin\theta}{\theta}\phi^\wedge
+    +\frac{1-\cos\theta}{\theta^2}(\phi^\wedge)^2.
+    }
+\]
+它把李代数中的旋转向量变成$\SO(3)$中的合法旋转矩阵。这里的$\theta$既表示旋转向量的模，也表示绕该轴的旋转角；轴方向为$\phi/\|\phi\|$。
+
+当$\theta$很小时，上式中的两个系数应按连续极限或泰勒级数计算：
+\[
+    \frac{\sin\theta}{\theta}
+    =1-\frac{\theta^2}{6}+\frac{\theta^4}{120}-\cdots,
+\]
+\[
+    \frac{1-\cos\theta}{\theta^2}
+    =\frac12-\frac{\theta^2}{24}+\frac{\theta^4}{720}-\cdots.
+\]
+因此
+\[
+    \Exp(\phi^\wedge)=I+\phi^\wedge+O(\|\phi\|^2),
+\]
+这就是SLAM中常用的小角度近似。
+
+\textbf{（4）二维刚体群$\SE(2)$。}
+
+令
+\[
+    E=\begin{bmatrix}0&-1\\1&0\end{bmatrix},
+    \qquad
+    \theta^\wedge=\theta E,
+    \qquad
+    \xi=\begin{bmatrix}\rho\\\theta\end{bmatrix},
+    \quad \rho\in\R^2.
+\]
+其李代数矩阵为
+\[
+    \xi^\wedge=
+    \begin{bmatrix}
+        0&-\theta&\rho_1\\
+        \theta&0&\rho_2\\
+        0&0&0
+    \end{bmatrix}.
+\]
+指数映射为
+\[
+    \Exp_{\SE(2)}(\xi^\wedge)
+    =
+    \begin{bmatrix}
+        R(\theta)&V_2(\theta)\rho\\
+        0&1
+    \end{bmatrix},
+\]
+其中
+\[
+    V_2(\theta)
+    =\frac{\sin\theta}{\theta}I_2
+    +\frac{1-\cos\theta}{\theta}E.
+\]
+所以平移块是
+\[
+    t=V_2(\theta)\rho,
+\]
+而不是简单的$t=\rho$。原因是恒定李代数速度中的平移方向会随着旋转一起改变，积分后的轨迹因此是弯曲的。$\theta\to0$时$V_2(\theta)\to I_2$，平移群的直观情形重新出现。
+
+\textbf{（5）三维刚体群$\SE(3)$。}
+
+采用本章约定的“平移在前、旋转在后”排列
+\[
+    \xi=\begin{bmatrix}\rho\\\phi\end{bmatrix}\in\R^6,
+    \qquad
+    \xi^\wedge=
+    \begin{bmatrix}
+        \phi^\wedge&\rho\\
+        0&0
+    \end{bmatrix}.
+\]
+若采用其他教材的$(\phi,\rho)$排列，六维坐标的块顺序会改变，但抽象的$\xi\in\se(3)$没有改变。指数映射为
+\[
+    \boxed{
+    \Exp_{\SE(3)}(\xi^\wedge)
+    =\exp_{\mathrm{mat}}(\xi^\wedge)
+    =
+    \begin{bmatrix}
+        \Exp(\phi^\wedge)&V(\phi)\rho\\
+        0&1
+    \end{bmatrix}.
+    }
+\]
+其中
+\[
+    V(\phi)
+    =I+\frac{1-\cos\theta}{\theta^2}\phi^\wedge
+    +\frac{\theta-\sin\theta}{\theta^3}(\phi^\wedge)^2,
+    \qquad \theta=\|\phi\|.
+\]
+许多文献把这个$V(\phi)$记为$J(\phi)$或$J_l(\phi)$，称为$\SO(3)$的左雅可比矩阵。本书在矩阵指数公式中使用$V(\phi)$，以突出它来自齐次矩阵指数的平移块。因此
+\[
+    \boxed{t=V(\phi)\rho}
+\]
+是$\SE(3)$中最需要留意的耦合项：旋转部分由$\phi$决定，平移部分不是原封不动的$\rho$，而是把旋转过程积分进去后的结果。
+\end{lieexample}
+
+\begin{lieexample}{从$\SE(3)$微分方程直接读出$V(\phi)\rho$}
+从左不变方程
+\[
+    \dot T(t)=T(t)\xi^\wedge,
+    \qquad T(0)=I_4,
+\]
+写成块矩阵
+\[
+    T(t)=
+    \begin{bmatrix}R(t)&p(t)\\0&1\end{bmatrix},
+    \qquad
+    \xi^\wedge=
+    \begin{bmatrix}\phi^\wedge&\rho\\0&0\end{bmatrix}.
+\]
+矩阵乘法给出
+\[
+    T(t)\xi^\wedge
+    =
+    \begin{bmatrix}
+        R(t)\phi^\wedge&R(t)\rho\\
+        0&0
+    \end{bmatrix},
+    \qquad
+    \dot T(t)=
+    \begin{bmatrix}\dot R(t)&\dot p(t)\\0&0\end{bmatrix}.
+\]
+比较左上和右上两个块，得到
+\[
+    \boxed{\dot R(t)=R(t)\phi^\wedge,}
+    \qquad
+    \boxed{\dot p(t)=R(t)\rho.}
+\]
+第一条方程给出
+\[
+    R(t)=\Exp(t\phi^\wedge).
+\]
+将它代入第二条方程并使用$p(0)=0$，有
+\[
+    p(1)=\int_0^1\Exp(s\phi^\wedge)\rho\,ds.
+\]
+利用Rodrigues公式
+\[
+    \Exp(s\phi^\wedge)
+    =I+\frac{\sin(s\theta)}{\theta}\phi^\wedge
+    +\frac{1-\cos(s\theta)}{\theta^2}(\phi^\wedge)^2,
+\]
+逐项积分得到
+\[
+\begin{aligned}
+    \int_0^1\Exp(s\phi^\wedge)\,ds
+    &=I+\frac{1-\cos\theta}{\theta^2}\phi^\wedge
+      +\frac{\theta-\sin\theta}{\theta^3}(\phi^\wedge)^2\\
+    &=V(\phi).
+\end{aligned}
+\]
+所以
+\[
+    p(1)=V(\phi)\rho,
+\]
+这正是$\SE(3)$指数映射右上角的平移块。它的来源不是额外规定，而是对运动过程中不断旋转的平移速度$R(s)\rho$做时间积分。
+\end{lieexample}
+
+\begin{lieexample}{左、右不变方程为何在固定方向时同解}
+若改用右不变向量场
+\[
+    Y^\xi_g:=(dR_g)_I\xi,
+    \qquad
+    R_g(h)=hg,
+\]
+则同样有
+\[
+    Y^\xi_g=\xi g,
+\]
+右不变积分曲线满足
+\[
+    \dot\gamma(t)=\xi\gamma(t),
+    \qquad
+    \gamma(0)=I.
+\]
+矩阵指数还满足
+\[
+    \frac{d}{dt}\exp_{\mathrm{mat}}(t\xi)
+    =\xi\exp_{\mathrm{mat}}(t\xi),
+\]
+因为$\xi$与它自己的每个幂$\xi^k$交换。因此在这个特殊情形下，左不变方程
+\[
+    \dot\gamma=\gamma\xi
+\]
+和右不变方程
+\[
+    \dot\gamma=\xi\gamma
+\]
+具有同一个解$\exp_{\mathrm{mat}}(t\xi)$。
+
+在刚体运动中，若$T$按常见约定表示“机体坐标到世界坐标”的变换，则
+\[
+    \dot T=T\xi_{\mathrm{body}}^\wedge
+\]
+中的速度是在机体坐标系表达的body速度，而
+\[
+    \dot T=\xi_{\mathrm{spatial}}^\wedge T
+\]
+中的速度是在世界坐标系表达的spatial或world速度。这里的body、spatial名称依赖于位姿变换方向；可靠的判断标准仍然是扰动矩阵究竟乘在$T$的哪一侧。
+
+但这不意味着两个向量场处处相同。一般的非交换矩阵群中
+\[
+    g\xi\neq\xi g,
+\]
+所以$X^\xi_g$与$Y^\xi_g$通常是$T_gG$中的两根不同切向量；只是沿着由同一个固定$\xi$生成的指数曲线，当前点恰好是$\exp_{\mathrm{mat}}(t\xi)$，它与$\xi$交换。若方向变为时变量$\xi(t)$，则
+\[
+    \gamma(t)\xi(t)\neq\xi(t)\gamma(t)
+\]
+通常成立，左右两个方程不能再随意互换。
+
+特别地，对时变李代数速度，
+\[
+    \dot T(t)=T(t)\xi(t)^\wedge
+\]
+和
+\[
+    \dot T(t)=\xi(t)^\wedge T(t)
+\]
+一般不能写成
+\[
+    T(t)=\exp_{\mathrm{mat}}\left(\int_0^t\xi(s)^\wedge\,ds\right).
+\]
+只有当不同时刻的矩阵彼此交换，例如
+\[
+    [\xi(s_1)^\wedge,\xi(s_2)^\wedge]=0,
+    \qquad\forall s_1,s_2,
+\]
+这个简单的积分指数形式才成立。一般情形需要时间有序指数、Magnus展开、BCH展开或保持群结构的数值积分；这正是IMU预积分和连续时间轨迹中不能只把速度逐项相加的原因。
+\end{lieexample}
+
+例如在$\SO(3)$中，若$\xi=\hat\omega\in\so(3)$表示固定角速度$\omega$，则
+\[
+    \dot R(t)=R(t)\hat\omega,
+    \qquad
+    R(0)=I,
+\]
+其解为
+\[
+    R(t)=\exp_{\mathrm{mat}}(t\hat\omega).
+\]
+这正是“从单位旋转出发，以固定局部旋转方向连续运动”的矩阵表达；后文的Rodrigues公式负责高效计算这个矩阵指数。
+
+\begin{lieexample}{指数映射与回缩映射不是一回事}
+在SLAM优化中，除了真正的指数映射，还可以使用局部回缩映射（retraction）把线性增量送回流形。例如对旋转矩阵，可以使用Cayley变换
+\[
+    \operatorname{Cay}(\phi^\wedge)
+    =
+    \left(I-\frac12\phi^\wedge\right)^{-1}
+    \left(I+\frac12\phi^\wedge\right).
+\]
+它在零点附近满足
+\[
+    \operatorname{Cay}(\phi^\wedge)
+    =I+\phi^\wedge+O(\|\phi\|^2),
+\]
+因此与指数映射具有相同的一阶局部行为，但一般不等于
+\[
+    \Exp(\phi^\wedge)=\exp_{\mathrm{mat}}(\phi^\wedge).
+\]
+二者的含义要区分：
+\[
+\begin{array}{c|c}
+\text{映射} & \text{含义}\\ \hline
+\Exp & \text{沿左不变向量场积分单位时间得到的真实群元素}\\
+\operatorname{Cay}\text{等回缩映射}
+    & \text{在零点附近一阶正确、但不一定沿真实指数曲线的替代更新}
+\end{array}
+\]
+因此，标准的$\SO(3)$、$\SE(3)$扰动通常写成
+\[
+    R_{\mathrm{new}}
+    =\Exp(\delta\phi)R
+    \quad\text{或}\quad
+    R_{\mathrm{new}}
+    =R\Exp(\delta\phi),
+\]
+\[
+    T_{\mathrm{new}}
+    =\Exp(\delta\xi^\wedge)T
+    \quad\text{或}\quad
+    T_{\mathrm{new}}
+    =T\Exp(\delta\xi^\wedge).
+\]
+左右乘法对应不同的扰动坐标和速度约定，并不是两个互相矛盾的指数映射。
+\end{lieexample}
+
+\subsection{单参数子群}
+
+\begin{theorem}[指数曲线的单参数子群性质]
+对任意$\xi\in\mathfrak g$和$s,t\in\R$，有
+\[
+    \Exp((s+t)\xi)=\Exp(s\xi)\Exp(t\xi).
+\]
+因此$t\mapsto\Exp(t\xi)$是从$(\R,+)$到$G$的李群同态。
+\end{theorem}
+
+\begin{proof}
+固定$s$，考虑两条关于$t$的曲线
+\[
+    \alpha(t)=\gamma_\xi(s+t),
+    \qquad
+    \beta(t)=\gamma_\xi(s)\gamma_\xi(t).
+\]
+两者在$t=0$时都等于$\gamma_\xi(s)$。由积分曲线方程，$\alpha$满足
+\[
+    \dot\alpha(t)=X^\xi_{\alpha(t)}.
+\]
+另一方面，左不变性给出
+\[
+    \dot\beta(t)
+    =(dL_{\gamma_\xi(s)})_{\gamma_\xi(t)}\dot\gamma_\xi(t)
+    =X^\xi_{\beta(t)}.
+\]
+两条曲线满足同一内蕴微分方程和同一初值，由积分曲线唯一性得$\alpha(t)=\beta(t)$。取$t$为所需值即可。
+\end{proof}
+
+\begin{proposition}[指数映射在零点的微分]
+把$T_0\mathfrak g$自然识别为$\mathfrak g$，则
+\[
+    d\Exp_0=\operatorname{id}_{\mathfrak g}.
+\]
+\end{proposition}
+
+\begin{proof}
+对$\xi\in\mathfrak g$，由积分曲线定义，
+\[
+    d\Exp_0(\xi)
+    =\left.\frac{d}{dt}\right|_{t=0}\Exp(t\xi)
+    =\dot\gamma_\xi(0)
+    =X^\xi_e
+    =(dL_e)_e\xi=\xi.
+\]
+\end{proof}
+
+%——————————————————————————————————%
+
+\section{$\SE(3)$的内蕴半直积结构}
+
+\subsection{$\SO(3)\ltimes\R^3$}
+
+旋转会作用于平移向量，因此三维刚体变换的抽象结构不是简单直积，而是半直积：
+\[
+    \SE(3)=\SO(3)\ltimes\R^3.
+\]
+
+\begin{definition}[半直积群结构]
+将群元素写为$(R,t)$，其中$R\in\SO(3)$，$t\in\R^3$。群乘法定义为
+\[
+    (R,t)(R',t')=(RR',\ t+Rt').
+\]
+单位元和逆元分别为
+\[
+    e=(I,0),
+    \qquad
+    (R,t)^{-1}=(R^{-1},-R^{-1}t).
+\]
+\end{definition}
+
+后一段相对平移$t'$先受到前一段旋转$R$的作用，再与$t$相加。这就是旋转和平移之间的耦合，也是$\SE(3)$非交换性的来源之一。
+
+\subsection{李代数半直积}
+
+\begin{definition}[$\so(3)$与$\se(3)$的抽象结构]
+旋转群单位元处的切空间记为
+\[
+    \so(3):=T_I\SO(3).
+\]
+刚体位姿群单位元处的切空间具有半直积结构
+\[
+    \se(3):=T_e\SE(3)\cong\so(3)\ltimes\R^3.
+\]
+采用“平移在前、旋转在后”的记号，$\se(3)$中的元素写为$(\rho,\phi)$，其中$\rho\in\R^3$表示平移方向，$\phi\in\R^3$表示旋转方向。
+\end{definition}
+
+其李括号为
+\[
+    [(\rho,\phi),(\rho',\phi')]
+    =\bigl(\phi\times\rho'-\phi'\times\rho,\ \phi\times\phi'\bigr),
+\]
+其中叉乘是$\so(3)\simeq\R^3$后的三维表达。如果采用“旋转在前、平移在后”的记号$(\omega,v)$，同一公式写成
+\[
+    [(\omega,v),(\omega',v')]
+    =\bigl(\omega\times\omega',\ \omega\times v'-\omega'\times v\bigr).
+\]
+叉乘只是三维欧氏空间中的坐标表达，底层结构仍然是半直积李代数。
+
+\begin{theorem}[$\se(3)$的维数]
+\[
+    \dim\se(3)=\dim\so(3)+\dim\R^3=3+3=6.
+\]
+\end{theorem}
+
+%——————————————————————————————————%
+
+\section{伴随表示：同一切向量的两种群坐标表达}
+
+\subsection{从共轭映射到伴随表示}
+
+一般流形上，不同点的切空间彼此分离。李群则可以借助左、右平移，把任意$T_gG$与单位元切空间$T_eG=\mathfrak g$识别起来。两种识别方式并不相同，而它们之间的转换来自共轭映射。
+
+\begin{definition}[共轭映射]
+对$g\in G$，定义
+\[
+    C_g:G\to G,
+    \qquad
+    C_g(h)=ghg^{-1}.
+\]
+由于
+\[
+    C_g(e)=geg^{-1}=e,
+\]
+其在单位元处的微分是一个从$T_eG$到自身的线性映射。
+\end{definition}
+
+\begin{definition}[伴随表示]
+李群元素$g$的伴随表示定义为
+\[
+    \boxed{
+    \Ad_g:=(dC_g)_e:\mathfrak g\to\mathfrak g.
+    }
+\]
+\end{definition}
+
+因此，$C_g$作用在群$G$上，而$\Ad_g$作用在李代数$\mathfrak g=T_eG$上。$\Ad_g$既不是$G$中的一个额外群元素，也不直接作用于任意$T_gG$中的切向量；它是共轭映射在固定点$e$处的线性化。
+
+\subsection{同一切向量的左、右平凡化}
+
+先固定对象类型：
+\[
+    g\in G,
+    \qquad
+    v_g\in T_gG,
+    \qquad
+    \xi\in\mathfrak g=T_eG.
+\]
+其中$v_g$是实际位于$g$处的切向量；$\xi$则是把$v_g$搬回单位元后得到的李代数表示。为避免与“扰动写在左侧还是右侧”的下标混淆，下面用上标$(L)$和$(R)$标记所使用的平移映射。
+
+因为$(dL_g)_e$是线性同构，存在唯一的$\xi^{(L)}\in\mathfrak g$使
+\[
+    v_g=(dL_g)_e\xi^{(L)},
+    \qquad
+    \xi^{(L)}=(dL_{g^{-1}})_g v_g.
+\]
+这称为$v_g$的左平凡化表示。类似地，存在唯一的$\xi^{(R)}\in\mathfrak g$使
+\[
+    v_g=(dR_g)_e\xi^{(R)},
+    \qquad
+    \xi^{(R)}=(dR_{g^{-1}})_g v_g,
+\]
+称为右平凡化表示。因此同一个实际切向量满足
+\[
+    \boxed{
+    v_g=(dL_g)_e\xi^{(L)}=(dR_g)_e\xi^{(R)}.
+    }
+\]
+
+两种表示的关系由映射恒等式
+\[
+    L_g=R_g\circ C_g
+\]
+决定。事实上，
+\[
+    (R_g\circ C_g)(h)=(ghg^{-1})g=gh=L_g(h).
+\]
+在$e$处使用链式法则，得到
+\[
+    \boxed{
+    (dL_g)_e=(dR_g)_e\circ\Ad_g.
+    }
+\]
+于是
+\[
+    (dL_g)_e\xi^{(L)}
+    =(dR_g)_e\bigl(\Ad_g\xi^{(L)}\bigr).
+\]
+再利用$(dR_g)_e$的可逆性可得
+\[
+    \boxed{
+    \xi^{(R)}=\Ad_g\xi^{(L)},
+    \qquad
+    \xi^{(L)}=\Ad_{g^{-1}}\xi^{(R)}.
+    }
+\]
+所以Adjoint描述的不是两个不同运动，而是同一个$v_g\in T_gG$在两种群平凡化下的李代数坐标如何转换。
+
+\subsection{伴随表示与指数映射}
+
+设$\xi\in\mathfrak g$，考虑单位元出发的指数曲线$\gamma_\xi(t)=\Exp(t\xi)$及其共轭曲线
+\[
+    \widetilde\gamma(t)
+    =C_g(\gamma_\xi(t))
+    =g\Exp(t\xi)g^{-1}.
+\]
+它经过单位元，且初始速度为
+\[
+    \widetilde\gamma(0)=e,
+    \qquad
+    \dot{\widetilde\gamma}(0)
+    =(dC_g)_e\xi
+    =\Ad_g\xi.
+\]
+共轭还保持群乘法，所以$\widetilde\gamma$是由$\Ad_g\xi$生成的单参数子群。由指数曲线的唯一性，
+\[
+    \boxed{
+    g\Exp(t\xi)g^{-1}
+    =\Exp\bigl(t\Ad_g\xi\bigr).
+    }
+\]
+取$t=1$并在右侧乘$g$，得到
+\[
+    \boxed{
+    g\Exp(\xi)
+    =\Exp(\Ad_g\xi)g.
+    }
+\]
+这不是偶然的矩阵恒等式，而是共轭映射、单位元处微分和指数曲线唯一性共同给出的结果。
+
+\subsection{右侧扰动、左侧扰动与换边}
+
+设当前状态为$g\in G$。若扰动写在$g$的右侧，记为
+\[
+    g'=g\Exp(\delta\xi_{\mathrm{right}}),
+\]
+则相应曲线
+\[
+    \gamma_{\mathrm{right}}(t)
+    =g\Exp(t\delta\xi_{\mathrm{right}})
+\]
+是单位元指数曲线的左平移，因而
+\[
+    \dot\gamma_{\mathrm{right}}(0)
+    =(dL_g)_e\delta\xi_{\mathrm{right}}.
+\]
+若扰动写在$g$的左侧，记为
+\[
+    g'=\Exp(\delta\xi_{\mathrm{left}})g,
+\]
+则相应曲线是右平移，且
+\[
+    \dot\gamma_{\mathrm{left}}(0)
+    =(dR_g)_e\delta\xi_{\mathrm{left}}.
+\]
+
+若要求两条扰动曲线在$g$处具有同一个初始切向量，则上一节的平凡化关系给出
+\[
+    \boxed{
+    \delta\xi_{\mathrm{left}}
+    =\Ad_g\delta\xi_{\mathrm{right}},
+    \qquad
+    \delta\xi_{\mathrm{right}}
+    =\Ad_{g^{-1}}\delta\xi_{\mathrm{left}}.
+    }
+\]
+取满足这一关系的两组扰动后，指数映射的共轭公式进一步保证有限更新严格相同：
+\[
+    \boxed{
+    g\Exp(\delta\xi_{\mathrm{right}})
+    =\Exp(\delta\xi_{\mathrm{left}})g.
+    }
+\]
+反过来，若想从有限更新的相等推出扰动坐标关系，还需把扰动限制在$\Exp$可逆的同一个局部邻域内，并固定一致的$\Log$分支。
+
+这里有一个容易混淆但必须固定的对应关系：
+\[
+\begin{aligned}
+    \text{扰动写在右侧}
+    &\Longleftrightarrow (dL_g)_e
+    \Longleftrightarrow \text{左平凡化表示},\\
+    \text{扰动写在左侧}
+    &\Longleftrightarrow (dR_g)_e
+    \Longleftrightarrow \text{右平凡化表示}.
+\end{aligned}
+\]
+文献中还常见body、spatial、left-invariant、right-invariant等术语，但这些名称会受到位姿变换方向和误差定义的影响。可靠的做法是先写明群乘法公式与平移映射，再判断所用约定。
+
+%——————————————————————————————————%
+
+\section{矩阵实现：把抽象结构落到$\SE(3)$}
+
+\subsection{旋转矩阵和齐次变换矩阵}
+
+到这里为止，伴随表示与扰动换边都没有依赖$4\times4$或$6\times6$矩阵。为了与实际SLAM代码对接，现在选择标准矩阵实现：
+
+这里的“矩阵实现”不是把$\SO(3)$或$\SE(3)$重新定义成若干数组，而是为已经建立的内蕴对象选择一套具体表示。特别是，先说明无穷小旋转作为线性映射的几何来源，再在标准正交基下写出矩阵；后面的Rodrigues公式和齐次矩阵公式才是这套表示中的计算结果。
+\[
+    \SO(3)=\{R\in\R^{3\times3}:R^\top R=I,\ \det R=1\},
+\]
+以及
+\[
+    \SE(3)=
+    \left\{
+    T=\begin{bmatrix}R&t\\0&1\end{bmatrix}:R\in\SO(3),\ t\in\R^3
+    \right\}.
+\]
+矩阵乘法给出
+\[
+    \begin{bmatrix}R&t\\0&1\end{bmatrix}
+    \begin{bmatrix}R'&t'\\0&1\end{bmatrix}
+    =
+    \begin{bmatrix}RR'&t+Rt'\\0&1\end{bmatrix},
+\]
+与半直积乘法完全一致。
+
+\begin{proposition}[矩阵状态空间不是环境欧氏空间]
+$\SO(3)$可以嵌入$\R^9$，$\SE(3)$可以嵌入$\R^{16}$，但这不意味着它们是相应欧氏空间中的任意点。若直接写
+\[
+    R_{\mathrm{new}}=R+\Delta R,
+\]
+则
+\[
+\begin{aligned}
+    R_{\mathrm{new}}^\top R_{\mathrm{new}}
+    &=(R+\Delta R)^\top(R+\Delta R)\\
+    &=I+R^\top\Delta R+\Delta R^\top R+\Delta R^\top\Delta R,
+\end{aligned}
+\]
+一般不再等于$I$。所以环境矩阵空间只是承载表示，真实状态空间仍是$\SO(3)$或$\SE(3)$。
+\end{proposition}
+
+\subsection{从无穷小旋转到帽算子}
+
+\subsubsection*{先明确要解决的问题}
+
+令$V$是三维定向欧氏向量空间。记所有保持内积的线性同构组成的正交群为
+\[
+    \mathrm O(V)
+    :=
+    \left\{
+    R\in\mathrm{GL}(V):
+    \langle Ru,Rv\rangle=\langle u,v\rangle,\ 
+    \forall u,v\in V
+    \right\}.
+\]
+其中保持给定定向的部分记为$\SO(V)$。在没有选定坐标之前，李代数只定义为单位元处的切空间：
+\[
+    \mathfrak{so}(V):=T_I\SO(V).
+\]
+此时还不能直接写出$\Omega^\top=-\Omega$，因为转置依赖于所选基。我们要从旋转保持内积这一内蕴性质出发，推导出它在坐标中的反对称约束。一个$\Omega\in\mathfrak{so}(V)$首先应被理解为$V$上的线性映射
+\[
+    \Omega:V\to V,
+\]
+它描述的是“向量在无穷小旋转下如何瞬时运动”。机器人传感器给出的角速度却通常是一个向量
+\[
+    \omega\in V.
+\]
+因此需要回答：
+\[
+    \boxed{
+    \text{怎样把角速度向量自然地理解为}\ \mathfrak{so}(V)\text{中的无穷小旋转？}
+    }
+\]
+
+\subsubsection*{无穷小旋转首先是一个线性作用}
+
+考虑一条经过单位元的旋转曲线
+\[
+    R(t)\in\SO(V),
+    \qquad
+    R(0)=I.
+\]
+它在单位元处的速度为
+\[
+    \Omega:=\dot R(0)\in T_I\SO(V)=\mathfrak{so}(V).
+\]
+对任意固定向量$u\in V$，曲线$R(t)u$描述该向量随旋转的运动。因此
+\[
+    \left.\frac{d}{dt}\right|_{t=0}R(t)u
+    =\Omega u.
+\]
+所以$\Omega u$的含义是：
+\[
+    \boxed{
+    \Omega u\text{ 是向量}u\text{在该无穷小旋转下的瞬时速度。}
+    }
+\]
+这里$\Omega$不是一个额外拼出来的矩阵，而是旋转群作用
+\[
+    \SO(V)\times V\to V,
+    \qquad
+    (R,u)\mapsto Ru
+\]
+在单位元处沿群方向求微分后得到的线性作用。
+
+\subsubsection*{由内积保持性推出必要约束}
+
+因为旋转保持内积，对任意$u,v\in V$都有
+\[
+    \langle R(t)u,R(t)v\rangle
+    =\langle u,v\rangle.
+\]
+对$t=0$求导，并利用内积的双线性性：
+\[
+    \langle\Omega u,v\rangle
+    +\langle u,\Omega v\rangle
+    =0.
+\]
+也就是说，
+\[
+    \boxed{
+    \langle\Omega u,v\rangle
+    =-\langle u,\Omega v\rangle,
+    \qquad\forall u,v\in V.
+    }
+\]
+因此$\Omega$是一个反对称（更准确地说是反自伴）的线性映射。选取正交基后，它的矩阵满足
+\[
+    \Omega^\top=-\Omega.
+\]
+特别地，令$v=u$，得到
+\[
+    \langle\Omega u,u\rangle=0.
+\]
+所以
+\[
+    \boxed{
+    \Omega u\perp u.
+    }
+\]
+这说明无穷小旋转不会让向量沿自身方向伸长或缩短，而只会让它沿球面的切方向运动。
+
+为了说明这不只是一个必要条件，记$A^\ast$为$A:V\to V$关于内积的伴随，即
+\[
+    \langle Au,v\rangle=\langle u,A^\ast v\rangle.
+\]
+上面的关系等价于
+\[
+    \Omega^\ast=-\Omega.
+\]
+反过来，若一个线性映射$A$满足$A^\ast=-A$，考虑线性算子指数曲线
+\[
+    S_A(t):=\exp(tA).
+\]
+由于$A$与自己的各次幂交换，
+\[
+    \dot S_A(t)=AS_A(t)=S_A(t)A.
+\]
+于是对任意$u,v\in V$，
+\[
+\begin{aligned}
+    \frac{d}{dt}\langle S_A(t)u,S_A(t)v\rangle
+    &=
+    \langle AS_A(t)u,S_A(t)v\rangle
+    +\langle S_A(t)u,AS_A(t)v\rangle\\
+    &=0,
+\end{aligned}
+\]
+因为$A^\ast=-A$。在$t=0$时，
+\[
+    \langle S_A(0)u,S_A(0)v\rangle
+    =\langle u,v\rangle,
+\]
+所以$S_A(t)$对所有$t$都保持内积；它又是一条从$I$出发的连续曲线，因此保持定向，属于$\SO(V)$。同时
+\[
+    S_A(0)=I,
+    \qquad
+    \dot S_A(0)=A.
+\]
+这说明每一个满足$A^\ast=-A$的线性映射，确实都是$T_I\SO(V)$中的切向量。因此得到内蕴等式
+\[
+    \boxed{
+    T_I\SO(V)
+    =
+    \left\{
+    A\in\operatorname{End}(V):A^\ast=-A
+    \right\}.
+    }
+\]
+只有在选取正交基后，伴随$A^\ast$才由矩阵转置表示，于是上式才变成
+\[
+    \Omega^\top=-\Omega.
+\]
+
+\subsubsection*{三维定向结构给出叉积}
+
+三维定向欧氏空间有叉积
+\[
+    \times:V\times V\to V.
+\]
+对每个$\omega\in V$，定义线性映射
+\[
+    \iota(\omega):V\to V,
+    \qquad
+    \iota(\omega)(u):=\omega\times u.
+\]
+对任意$u,v\in V$，利用标量三重积恒等式：
+\[
+\begin{aligned}
+    \langle\iota(\omega)u,v\rangle
+    &=\langle\omega\times u,v\rangle\\
+    &=\langle\omega,u\times v\rangle\\
+    &=-\langle u,\omega\times v\rangle\\
+    &=-\langle u,\iota(\omega)v\rangle.
+\end{aligned}
+\]
+因此$\iota(\omega)\in\mathfrak{so}(V)$。这给出线性映射
+\[
+    \iota:V\to\mathfrak{so}(V),
+    \qquad
+    \omega\mapsto\bigl(u\mapsto\omega\times u\bigr).
+\]
+它是单射：若$\omega\times u=0$对所有$u$成立，则非零的$\omega$不可能存在，因为可以选取一个与$\omega$正交且非零的$u$。另一方面，在三维中
+\[
+    \dim V=3,
+    \qquad
+    \dim\mathfrak{so}(V)=\frac{3(3-1)}2=3.
+\]
+所以$\iota$是线性同构：
+\[
+    \boxed{
+    \iota:V\xrightarrow{\ \simeq\ }\mathfrak{so}(V).
+    }
+\]
+这就是三维中的特殊事实：每个无穷小旋转$\Omega$都唯一对应一个向量$\omega$，满足
+\[
+    \Omega u=\omega\times u.
+\]
+这个向量就是角速度向量。它依赖三维空间的内积和定向，并不是任意维度的普遍现象。
+
+\subsubsection*{帽算子是这个同构的坐标记号}
+
+机器人学中把上面的同构记为
+\[
+    \wedge:V\to\mathfrak{so}(V),
+    \qquad
+    \omega\mapsto\omega^\wedge,
+\]
+其内蕴定义是
+\[
+    \boxed{
+    \omega^\wedge u:=\omega\times u,
+    \qquad
+    \forall u\in V.
+    }
+\]
+只有在选取标准右手正交基$(e_1,e_2,e_3)$后，$\omega^\wedge$才有熟悉的矩阵形式。若
+\[
+    \omega=
+    \begin{bmatrix}
+        \omega_1\\\omega_2\\\omega_3
+    \end{bmatrix},
+\]
+则
+\[
+    [\omega^\wedge]
+    =
+    \begin{bmatrix}
+        0&-\omega_3&\omega_2\\
+        \omega_3&0&-\omega_1\\
+        -\omega_2&\omega_1&0
+    \end{bmatrix}.
+\]
+因此应区分：
+\[
+    \boxed{
+    \omega^\wedge\text{首先是线性映射 }u\mapsto\omega\times u,
+    }
+\]
+\[
+    \boxed{
+    [\omega^\wedge]\text{只是它在标准基下的矩阵。}
+    }
+\]
+本书后续为了简洁，仍把这个矩阵和对应的线性映射都写成$\omega^\wedge$；当需要区分时，用方括号$[\omega^\wedge]$表示坐标矩阵。
+
+\subsubsection*{反帽映射$\vee$}
+
+由于$\wedge$是线性同构，它有逆映射
+\[
+    \vee:\mathfrak{so}(3)\to\R^3,
+\]
+满足
+\[
+    (\omega^\wedge)^\vee=\omega,
+    \qquad
+    (\Omega^\vee)^\wedge=\Omega.
+\]
+若在标准基下
+\[
+    \Omega=
+    \begin{bmatrix}
+        0&-c&b\\
+        c&0&-a\\
+        -b&a&0
+    \end{bmatrix},
+\]
+则
+\[
+    \Omega^\vee=
+    \begin{bmatrix}a\\b\\c\end{bmatrix}.
+\]
+这里的$\vee$不是简单的“从矩阵中读取三个元素”的技巧，而是三维定向欧氏结构所给出的同构$\mathfrak{so}(3)\simeq\R^3$的逆映射。
+
+\subsubsection*{单位元处、当前位置处与坐标向量}
+
+现在可以把三个常被混淆的对象放在一起：
+\[
+    \omega\in\R^3,
+    \qquad
+    \omega^\wedge\in\mathfrak{so}(3)=T_I\SO(3),
+    \qquad
+    R\omega^\wedge\in T_R\SO(3).
+\]
+它们不是同一个对象。前者是角速度坐标，第二个是单位元处的李代数切向量，第三个是被左平移搬到当前旋转$R$处的切向量。
+
+具体地，固定$R\in\SO(3)$，考虑曲线
+\[
+    \Gamma(t)=R\Exp(t\omega^\wedge).
+\]
+则
+\[
+    \Gamma(0)=R,
+\]
+并且
+\[
+\begin{aligned}
+    \dot\Gamma(0)
+    &=(dL_R)_I(\omega^\wedge)\\
+    &=R\omega^\wedge
+    \in T_R\SO(3).
+\end{aligned}
+\]
+一般来说$R\omega^\wedge$不再是反对称矩阵，因此不能把它继续当作$\mathfrak{so}(3)$中的元素；它是$R$处切空间中的实际速度。
+
+如果实际姿态曲线$R(t)$的角速度$\omega_B(t)$用当前机体系表达，那么定义上有
+\[
+    \dot R(t)
+    =(dL_{R(t)})_I\bigl(\omega_B(t)^\wedge\bigr).
+\]
+在矩阵表示下，这才简写为熟悉的IMU姿态方程
+\[
+    \boxed{
+    \dot R(t)=R(t)\omega_B(t)^\wedge.
+    }
+\]
+对象链是
+\[
+    \omega_B(t)\in\R^3
+    \xrightarrow{\ \wedge\ }
+    \omega_B(t)^\wedge\in T_I\SO(3)
+    \xrightarrow{\ (dL_{R(t)})_I\ }
+    \dot R(t)\in T_{R(t)}\SO(3).
+\]
+若采用世界坐标系表达的角速度，则相应地使用右平移，矩阵方程写成$\dot R(t)=\omega_W(t)^\wedge R(t)$；左右的区别是速度所在参考系和切向量搬运方式的区别。
+
+\subsubsection*{从$\so(3)$到$\se(3)$}
+
+令$V$仍为三维欧氏空间。刚体变换群可以内蕴地写成
+\[
+    \SE(V)=\SO(V)\ltimes V,
+\]
+其李代数为
+\[
+    \mathfrak{se}(V)
+    =\mathfrak{so}(V)\ltimes V.
+\]
+因此一个无穷小刚体运动首先是一个对象对
+\[
+    (\Omega,\rho)\in\mathfrak{so}(V)\times V.
+\]
+它作用在仿射空间$V$上的瞬时速度场为
+\[
+    x\longmapsto\Omega x+\rho.
+\]
+其中$\Omega x$是无穷小旋转造成的速度，$\rho$是独立的平移速度。利用三维同构$\Omega=\phi^\wedge$后，才得到机器人学常用的六维坐标
+\[
+    \xi=
+    \begin{bmatrix}
+        \rho\\\phi
+    \end{bmatrix}
+    \in\R^6.
+\]
+这里$\R^6$只是选定基后的坐标空间，不是说$\SE(3)$本身是一个六维向量空间。
+
+在齐次矩阵表示下，定义
+\[
+    \boxed{
+    \xi^\wedge:=
+    \begin{bmatrix}
+        \phi^\wedge&\rho\\
+        0&0
+    \end{bmatrix}
+    \in\mathfrak{se}(3).
+    }
+\]
+相应的对象层次为
+\[
+    \underbrace{
+    \xi=
+    \begin{bmatrix}\rho\\\phi\end{bmatrix}\in\R^6
+    }_{\text{选定基下的twist坐标}}
+    \xrightarrow{\ \wedge\ }
+    \underbrace{
+    \xi^\wedge\in\mathfrak{se}(3)=T_{I_4}\SE(3)
+    }_{\text{单位元处的李代数元素}}
+    \xrightarrow{\ (dL_T)_{I_4}\ }
+    \underbrace{
+    (dL_T)_{I_4}(\xi^\wedge)\in T_T\SE(3)
+    }_{\text{当前位姿处的瞬时速度}}.
+\]
+在齐次矩阵表示下，最后一步才写成
+\[
+    (dL_T)_{I_4}(\xi^\wedge)=T\xi^\wedge.
+\]
+这与$\SO(3)$中的$R\omega^\wedge$完全同型：矩阵乘法是平移微分的坐标表达，而不是把不同类型的对象当作普通群元素相乘。
+
+\subsubsection*{帽算子不是任意李群的普遍记号}
+
+三维角速度与无穷小旋转的一一对应依赖：
+\begin{enumerate}
+    \item 三维向量空间的内积；
+    \item 空间的定向；
+    \item 由内积和定向定义的叉积。
+\end{enumerate}
+一般地，
+\[
+    \dim\mathfrak{so}(n)=\frac{n(n-1)}2.
+\]
+只有$n=3$时这个维数才等于$3$，因此才可以把每个无穷小旋转自然地编码成一个三维角速度向量。对一般$\SO(n)$，仍然有反对称线性映射和矩阵李代数，但不应未经说明就使用三维的$\wedge$和叉积记号。
+
+\subsection{Rodrigues公式与$\SE(3)$指数的实现}
+
+令$\theta=\|\phi\|$。在标准矩阵表示下，旋转指数为
+\[
+    \Exp(\phi^\wedge)
+    =I+\frac{\sin\theta}{\theta}\phi^\wedge
+    +\frac{1-\cos\theta}{\theta^2}(\phi^\wedge)^2,
+\]
+其中$\theta\to0$时按连续极限解释。定义
+\[
+    V(\phi)
+    =I+\frac{1-\cos\theta}{\theta^2}\phi^\wedge
+    +\frac{\theta-\sin\theta}{\theta^3}(\phi^\wedge)^2.
+\]
+则
+\[
+    \Exp(\xi^\wedge)
+    =
+    \begin{bmatrix}
+        \Exp(\phi^\wedge)&V(\phi)\rho\\
+        0&1
+    \end{bmatrix}.
+\]
+这组公式是内蕴指数映射在矩阵坐标下的计算结果。小扰动时
+\[
+    \Exp(\phi^\wedge)\approx I+\phi^\wedge,
+    \qquad
+    \Exp(\xi^\wedge)\approx I_4+\xi^\wedge,
+\]
+但近似式只用于局部线性化，不能替代保持流形约束的指数更新。
+
+\subsection{$\SE(3)$的伴随矩阵}
+
+令
+\[
+    T=
+    \begin{bmatrix}R&t\\0&1\end{bmatrix}\in\SE(3),
+    \qquad
+    \xi^\wedge=
+    \begin{bmatrix}\phi^\wedge&\rho\\0&0\end{bmatrix}\in\se(3).
+\]
+对于矩阵李群，共轭映射为$C_T(H)=THT^{-1}$。在单位元$I$处求微分得到
+\[
+    \boxed{
+    \bigl(\Ad_T\xi\bigr)^\wedge
+    =T\xi^\wedge T^{-1}.
+    }
+\]
+这只是内蕴定义$\Ad_T=(dC_T)_I$在矩阵表示下的写法。直接计算可得
+\[
+\begin{aligned}
+    T\xi^\wedge T^{-1}
+    &=
+    \begin{bmatrix}R&t\\0&1\end{bmatrix}
+    \begin{bmatrix}\phi^\wedge&\rho\\0&0\end{bmatrix}
+    \begin{bmatrix}R^\top&-R^\top t\\0&1\end{bmatrix}\\
+    &=
+    \begin{bmatrix}
+        R\phi^\wedge R^\top&
+        R\rho-R\phi^\wedge R^\top t\\
+        0&0
+    \end{bmatrix}\\
+    &=
+    \begin{bmatrix}
+        (R\phi)^\wedge&
+        R\rho+t\times(R\phi)\\
+        0&0
+    \end{bmatrix}.
+\end{aligned}
+\]
+因此，在平移在前的坐标排列
+\[
+    \xi=
+    \begin{bmatrix}\rho\\\phi\end{bmatrix}\in\R^6
+\]
+下，
+\[
+    \boxed{
+    \Ad_T
+    =
+    \begin{bmatrix}
+        R&t^\wedge R\\
+        0&R
+    \end{bmatrix}.
+    }
+\]
+即
+\[
+    \Ad_T
+    \begin{bmatrix}\rho\\\phi\end{bmatrix}
+    =
+    \begin{bmatrix}
+        R\rho+t^\wedge R\phi\\
+        R\phi
+    \end{bmatrix}.
+\]
+如果采用旋转在前的六维排列，伴随矩阵会发生相应的块置换；改变的是坐标表示，不是几何映射$\Ad_T:\se(3)\to\se(3)$本身。
+
+\subsection{$t^\wedge R$项的几何来源}
+
+伴随作用把$(\rho,\phi)$变为
+\[
+    \bigl(R\rho+t\times(R\phi),\ R\phi\bigr).
+\]
+其中$R\phi$表示角速度分量随坐标轴旋转后的表达；$t\times(R\phi)$则表示参考原点改变后，同一个角运动在新原点处产生的附加线速度。因此$t^\wedge R$不是矩阵公式中的补丁，而是以下几何事实的坐标化结果：
+\[
+    \boxed{
+    \text{同一个刚体角运动，在不同参考原点处观察时，线速度分量一般不同。}
+    }
+\]
+
+%——————————————————————————————————%
+
+\section{从群乘法到BCH：李代数中的局部合成律}
+
+指数映射把单位元处的小运动变成群上的有限运动。接下来的自然问题是：若连续执行两个指数运动
+\[
+    \Exp(\xi),
+    \qquad
+    \Exp(\eta),
+\]
+能否再用一个李代数元素统一表示它们的乘积？局部答案是肯定的，但合成后的李代数元素一般不是$\xi+\eta$。Baker--Campbell--Hausdorff公式正是群乘法被搬回李代数后得到的局部合成律。
+
+\subsection{局部对数与BCH映射}
+
+前面已经证明
+\[
+    d\Exp_0=\operatorname{id}_{\mathfrak g}.
+\]
+由逆函数定理，存在$0\in\mathfrak g$的邻域$U$和$e\in G$的邻域$V$，使得
+\[
+    \Exp:U\to V
+\]
+是微分同胚。其局部逆记为
+\[
+    \Log:V\to U,
+    \qquad
+    \Log(\Exp(\xi))=\xi.
+\]
+再缩小$U$，可使足够小的$\xi,\eta\in U$满足
+\[
+    \Exp(\xi)\Exp(\eta)\in V.
+\]
+
+\begin{definition}[BCH局部合成映射]
+对上述足够小的$\xi,\eta\in\mathfrak g$，定义
+\[
+    \operatorname{BCH}(\xi,\eta)
+    :=\Log\bigl(\Exp(\xi)\Exp(\eta)\bigr).
+\]
+因此，在适当的$0$邻域$W\subset\mathfrak g$上，
+\[
+    \operatorname{BCH}:W\times W\to\mathfrak g.
+\]
+\end{definition}
+
+若群乘法记为
+\[
+    m:G\times G\to G,
+    \qquad
+    m(g,h)=gh,
+\]
+则
+\[
+    \boxed{
+    \operatorname{BCH}
+    =\Log\circ m\circ(\Exp\times\Exp).
+    }
+\]
+这说明BCH不是额外规定的代数运算，而是把单位元附近的群乘法借助$\Exp$与局部$\Log$搬回$\mathfrak g$。按定义，
+\[
+    \boxed{
+    \Exp(\xi)\Exp(\eta)
+    =\Exp\bigl(\operatorname{BCH}(\xi,\eta)\bigr).
+    }
+\]
+
+局部性不可省略。$\Log$一般不是全局单值映射；即使$\Exp(\xi)\Exp(\eta)$可以写成某个指数，其李代数原像也未必唯一。SLAM中使用$\Log(g_1^{-1}g_2)$作为相对位姿误差时，同样隐含“误差落在所选局部对数分支内”的条件。
+
+\subsection{BCH为什么是普通加法的高阶修正}
+
+由单位元性质，
+\[
+    \operatorname{BCH}(\xi,0)=\xi,
+    \qquad
+    \operatorname{BCH}(0,\eta)=\eta.
+\]
+又因为$d\Exp_0=d\Log_e=\operatorname{id}_{\mathfrak g}$，BCH在$(0,0)$处的一阶部分就是加法：
+\[
+    \operatorname{BCH}(\xi,\eta)
+    =\xi+\eta+\text{二阶及更高阶项}.
+\]
+
+\begin{theorem}[BCH公式的局部展开]
+当$\xi,\eta\in\mathfrak g$足够小时，
+\[
+\begin{aligned}
+    \operatorname{BCH}(\xi,\eta)
+    ={}&\xi+\eta
+    +\frac12[\xi,\eta]\\
+    &+\frac1{12}[\xi,[\xi,\eta]]
+    +\frac1{12}[\eta,[\eta,\xi]]
+    +\cdots.
+\end{aligned}
+\]
+特别地，保留到二阶有
+\[
+    \boxed{
+    \Log\bigl(\Exp(\xi)\Exp(\eta)\bigr)
+    =\xi+\eta+\frac12[\xi,\eta]+O(3).
+    }
+\]
+\end{theorem}
+
+这里$O(3)$按$\xi,\eta$出现的总次数计阶。例如$[\xi,\eta]$含有一个$\xi$和一个$\eta$，是二阶项；$[\xi,[\xi,\eta]]$含有两个$\xi$和一个$\eta$，是三阶项。
+
+在矩阵李群中，可以直接从二阶级数看出系数$1/2$的来源。记
+\[
+    Z=\xi+\eta+c[\xi,\eta]+O(3).
+\]
+一方面，
+\[
+\begin{aligned}
+    e^\xi e^\eta
+    ={}&I+\xi+\eta
+    +\frac12\xi^2+\xi\eta+\frac12\eta^2
+    +O(3).
+\end{aligned}
+\]
+另一方面，利用$[\xi,\eta]=\xi\eta-\eta\xi$，
+\[
+\begin{aligned}
+    e^Z
+    ={}&I+\xi+\eta
+    +\frac12\xi^2+\frac12\eta^2\\
+    &+\left(\frac12+c\right)\xi\eta
+    +\left(\frac12-c\right)\eta\xi
+    +O(3).
+\end{aligned}
+\]
+比较$\xi\eta$与$\eta\xi$的系数得到$c=1/2$。一般李群中出现的是同一个普适Lie级数；矩阵计算只是把二阶结构显式展示出来。
+
+\subsection{群交换子与Lie bracket的几何意义}
+
+考虑由$\xi,\eta\in\mathfrak g$生成的两条指数曲线，并构造群交换子曲线
+\[
+    K(t,s)
+    =\Exp(t\xi)\Exp(s\eta)
+    \Exp(-t\xi)\Exp(-s\eta).
+\]
+它满足
+\[
+    K(t,0)=e,
+    \qquad
+    K(0,s)=e,
+\]
+所以纯$t$或纯$s$的一阶变化全部抵消。第一个可能留下的项出现在$ts$阶。局部展开为
+\[
+    \boxed{
+    \Log K(t,s)
+    =ts[\xi,\eta]
+    +O(t^2s,ts^2).
+    }
+\]
+等价地，
+\[
+    K(t,s)
+    =\Exp\bigl(ts[\xi,\eta]
+    +O(t^2s,ts^2)\bigr).
+\]
+
+因此$[\xi,\eta]$测量的是：先执行两个小运动，再按相反方向分别撤销后，仍未能回到单位元时留下的二阶方向。若$[\xi,\eta]=0$，两种运动至少在这个最低非平凡阶上可交换；若括号非零，执行顺序便会进入合成结果。BCH中的$\frac12[\xi,\eta]$正是这种非交换性在单个对数坐标中的二阶修正。
+
+\subsection{BCH、Adjoint与小写$\operatorname{ad}$}
+
+大写Adjoint描述群共轭在单位元处的微分：
+\[
+    \Ad_g=(dC_g)_e,
+    \qquad
+    C_g(h)=ghg^{-1}.
+\]
+李括号还给出李代数上的线性算子。
+
+\begin{definition}[李代数的adjoint算子]
+对$\xi\in\mathfrak g$，定义
+\[
+    \operatorname{ad}_\xi:\mathfrak g\to\mathfrak g,
+    \qquad
+    \operatorname{ad}_\xi(\eta)=[\xi,\eta].
+\]
+\end{definition}
+
+二者由下式联系：
+\[
+    \boxed{
+    \Ad_{\Exp(\xi)}
+    =\exp(\operatorname{ad}_\xi).
+    }
+\]
+左侧的$\Exp(\xi)$是李群指数；右侧的$\exp$则是线性空间$\operatorname{End}(\mathfrak g)$中的算子指数：
+\[
+    \exp(\operatorname{ad}_\xi)
+    =I+\operatorname{ad}_\xi
+    +\frac1{2!}\operatorname{ad}_\xi^2+\cdots.
+\]
+因而
+\[
+\begin{aligned}
+    \Ad_{\Exp(\xi)}\eta
+    ={}&\eta+[\xi,\eta]
+    +\frac12[\xi,[\xi,\eta]]+\cdots.
+\end{aligned}
+\]
+
+可以把这条关系理解为一个线性常微分方程。令
+\[
+    A(t)\eta:=\Ad_{\Exp(t\xi)}\eta.
+\]
+则$A(0)=I$，且
+\[
+    \frac{d}{dt}A(t)
+    =\operatorname{ad}_\xi\circ A(t).
+\]
+所以
+\[
+    A(t)=\exp(t\operatorname{ad}_\xi),
+\]
+取$t=1$即得上述公式。由此可见，BCH中的嵌套括号并不是孤立的形式项，而是共轭作用沿指数曲线展开后自然产生的高阶结构。
+
+\subsection{欧氏加法群：BCH精确退化为向量相加}
+
+把$(\R^n,+)$看作李群。其单位元为$0$，并可自然识别
+\[
+    \mathfrak g=T_0\R^n\simeq\R^n.
+\]
+在这一识别下，
+\[
+    \Exp(\xi)=\xi,
+    \qquad
+    \Log(x)=x.
+\]
+由于群运算就是加法，
+\[
+    \boxed{
+    \operatorname{BCH}(\xi,\eta)
+    =\xi+\eta.
+    }
+\]
+同时，共轭映射满足$C_x(y)=x+y-x=y$，故
+\[
+    \Ad_x=I,
+    \qquad
+    \operatorname{ad}_\xi=0,
+    \qquad
+    [\xi,\eta]=0.
+\]
+所有BCH修正项都消失。这说明高数中熟悉的“两个位移直接相加”并非一般群上的普遍事实，而是BCH在交换加法群上的精确退化情形。
+
+从向量场流的角度也能看到同一事实。若
+\[
+    X_a(x)=a,
+    \qquad
+    X_b(x)=b
+\]
+是$\R^n$上的常向量场，则其流为
+\[
+    \Phi_t^{X_a}(x)=x+ta,
+    \qquad
+    \Phi_s^{X_b}(x)=x+sb.
+\]
+两种执行顺序都得到$x+ta+sb$，所以$[X_a,X_b]=0$。
+
+\subsection{高数中的非交换向量场例子}
+
+欧氏底空间本身是加法群，并不意味着其上任意向量场的流都交换。在$\R^2$上取
+\[
+    X=\frac{\partial}{\partial x},
+    \qquad
+    Y=x\frac{\partial}{\partial y}.
+\]
+对任意$f\in C^\infty(\R^2)$，
+\[
+\begin{aligned}
+    \bigl([X,Y]f\bigr)
+    &=X(Yf)-Y(Xf)\\
+    &=\frac{\partial}{\partial x}
+      \left(x\frac{\partial f}{\partial y}\right)
+      -x\frac{\partial}{\partial y}
+      \left(\frac{\partial f}{\partial x}\right)\\
+    &=\frac{\partial f}{\partial y}.
+\end{aligned}
+\]
+因此
+\[
+    \boxed{
+    [X,Y]=\frac{\partial}{\partial y}.
+    }
+\]
+两向量场的流分别是
+\[
+    \Phi_t^X(x,y)=(x+t,y),
+    \qquad
+    \Phi_s^Y(x,y)=(x,y+sx).
+\]
+先沿$X$再沿$Y$得到
+\[
+    \Phi_s^Y\circ\Phi_t^X(x,y)
+    =(x+t,y+s(x+t)),
+\]
+反过来得到
+\[
+    \Phi_t^X\circ\Phi_s^Y(x,y)
+    =(x+t,y+sx).
+\]
+二者相差$(0,st)$，恰好是$st[X,Y]$方向上的二阶位移。这里参与群运算的是局部微分同胚的复合，而非$\R^2$底空间的向量加法；它与有限维李群中的BCH共享相同的非交换机制。
+
+\subsection{可交换矩阵：何时可以写$e^Ae^B=e^{A+B}$}
+
+对矩阵$A,B\in\R^{n\times n}$，李括号为
+\[
+    [A,B]=AB-BA.
+\]
+若$AB=BA$，则二项式展开可以按普通交换代数整理：
+\[
+\begin{aligned}
+    e^Ae^B
+    &=\left(\sum_{k=0}^\infty\frac{A^k}{k!}\right)
+      \left(\sum_{\ell=0}^\infty\frac{B^\ell}{\ell!}\right)\\
+    &=\sum_{n=0}^\infty\frac{(A+B)^n}{n!}\\
+    &=e^{A+B}.
+\end{aligned}
+\]
+所以
+\[
+    \boxed{
+    [A,B]=0
+    \Longrightarrow
+    e^Ae^B=e^{A+B}.
+    }
+\]
+若$[A,B]\neq0$，这个等式一般不成立，而BCH给出缺失的交换子修正。
+
+\subsection{Heisenberg型矩阵：BCH精确有限终止}
+
+考虑
+\[
+    X=
+    \begin{bmatrix}
+        0&1&0\\
+        0&0&0\\
+        0&0&0
+    \end{bmatrix},
+    \qquad
+    Y=
+    \begin{bmatrix}
+        0&0&0\\
+        0&0&1\\
+        0&0&0
+    \end{bmatrix}.
+\]
+直接计算得到
+\[
+    XY=
+    \begin{bmatrix}
+        0&0&1\\
+        0&0&0\\
+        0&0&0
+    \end{bmatrix},
+    \qquad
+    YX=0.
+\]
+记
+\[
+    Z:=[X,Y]=XY.
+\]
+进一步有
+\[
+    [X,Z]=0,
+    \qquad
+    [Y,Z]=0.
+\]
+因此所有三阶及以上嵌套括号都消失，BCH级数精确终止为
+\[
+    \boxed{
+    \operatorname{BCH}(X,Y)
+    =X+Y+\frac12[X,Y].
+    }
+\]
+
+这个等式可以直接验证。因为$X^2=Y^2=0$，
+\[
+    e^X=I+X,
+    \qquad
+    e^Y=I+Y,
+\]
+所以
+\[
+    e^Xe^Y=I+X+Y+Z.
+\]
+另一方面，令
+\[
+    W=X+Y+\frac12Z.
+\]
+由$W^2=Z$和$W^3=0$，
+\[
+\begin{aligned}
+    e^W
+    &=I+W+\frac12W^2\\
+    &=I+X+Y+Z.
+\end{aligned}
+\]
+故
+\[
+    \boxed{
+    e^Xe^Y
+    =e^{X+Y+\frac12[X,Y]}.
+    }
+\]
+这里的$\frac12[X,Y]$不是近似修正，而是普通加法遗漏的精确中心方向。
+
+\subsection{BCH与$\SE(3)$中的增量合成}
+
+设当前位姿为$T\in\SE(3)$，连续施加两个右侧扰动：
+\[
+    T'
+    =T\Exp(\delta\xi_1)\Exp(\delta\xi_2).
+\]
+只要扰动位于同一个局部对数邻域内，就有精确的局部合并式
+\[
+    \boxed{
+    T\Exp(\delta\xi_1)\Exp(\delta\xi_2)
+    =T\Exp\bigl(
+        \operatorname{BCH}(\delta\xi_1,\delta\xi_2)
+    \bigr).
+    }
+\]
+二阶截断为
+\[
+\begin{aligned}
+    \operatorname{BCH}(\delta\xi_1,\delta\xi_2)
+    \simeq{}&\delta\xi_1+\delta\xi_2
+    +\frac12[\delta\xi_1,\delta\xi_2].
+\end{aligned}
+\]
+若只保留一阶，才得到优化中常用的近似
+\[
+    \operatorname{BCH}(\delta\xi_1,\delta\xi_2)
+    \simeq\delta\xi_1+\delta\xi_2.
+\]
+因此两个小增量可以近似相加，但两个有限位姿变化一般不能通过六维向量加法精确合成。
+
+左侧连续更新还要注意乘法顺序。若先施加$\delta\xi_1$，再施加$\delta\xi_2$，则
+\[
+\begin{aligned}
+    T_1&=\Exp(\delta\xi_1)T,\\
+    T_2&=\Exp(\delta\xi_2)T_1
+    =\Exp(\delta\xi_2)\Exp(\delta\xi_1)T.
+\end{aligned}
+\]
+所以合并后的左侧扰动是
+\[
+    \operatorname{BCH}(\delta\xi_2,\delta\xi_1),
+\]
+而不是把执行顺序忽略后任意排列两个参数。这再次说明BCH的参数顺序记录了群乘法顺序。
+
+\subsection{Adjoint与BCH回答不同问题}
+
+Adjoint的换边公式是
+\[
+    T\Exp(\delta\xi_{\mathrm{right}})
+    =\Exp(\Ad_T\delta\xi_{\mathrm{right}})T.
+\]
+它回答的是：同一个单次局部运动从右侧表达换到左侧表达时，李代数坐标如何改变。
+
+BCH公式是
+\[
+    \Exp(\xi)\Exp(\eta)
+    =\Exp\bigl(\operatorname{BCH}(\xi,\eta)\bigr).
+\]
+它回答的是：同一侧连续施加的两个指数运动，如何合并为一个指数运动。
+
+二者都反映非交换性，但作用不同：$\Ad_T$负责改变平凡化或参考表达，BCH负责合成连续增量。在欧氏加法群中，它们同时退化为
+\[
+    \Ad=I,
+    \qquad
+    [\xi,\eta]=0,
+    \qquad
+    \operatorname{BCH}(\xi,\eta)=\xi+\eta.
+\]
+而在$\SE(3)$中，通常$\Ad_T\neq I$且$[\xi,\eta]\neq0$，所以左、右扰动和增量合成都必须保留各自的群结构。
+
+本节最应掌握的是二阶局部公式
+\[
+    \boxed{
+    \Exp(\xi)\Exp(\eta)
+    =\Exp\left(
+        \xi+\eta+\frac12[\xi,\eta]+O(3)
+    \right),
+    }
+\]
+以及它的含义：两个小运动除了一阶相加外，还会留下由执行顺序产生的二阶Lie bracket效应。完整级数的通项、收敛域和解析证明可在推导$\SO(3)$、$\SE(3)$指数映射的左/右Jacobian或高阶预积分时再进一步讨论。
+
+%——————————————————————————————————%
+
+\section{从内蕴微分到SLAM Jacobian}
+
+\subsection{禁止直接对位姿加增量}
+
+设状态位姿为$g\in G=\SE(3)$，残差函数为
+\[
+    r:G\to\R^m.
+\]
+错误写法是
+\[
+    g_{\mathrm{new}}=g+\delta\xi.
+\]
+原因不是“数值上可能不稳定”，而是数学类型不匹配：$g$是流形点，$\delta\xi$是单位元切空间中的向量，表达式在内蕴意义下没有定义。
+
+标准的合法局部扰动是
+\[
+    g(\delta\xi)=g\Exp(\delta\xi),
+    \qquad \delta\xi\in\mathfrak g.
+\]
+其完整数据流为
+\[
+    \delta\xi\in\mathfrak g
+    \xrightarrow{\ \Exp\ }
+    \Exp(\delta\xi)\in G
+    \xrightarrow{\ L_g\ }
+    g\Exp(\delta\xi)\in G
+    \xrightarrow{\ r\ }
+    r(g\Exp(\delta\xi))\in\R^m.
+\]
+
+\subsection{局部残差函数}
+
+\begin{definition}[切空间中的局部残差]
+固定当前估计$g\in G$，定义
+\[
+    \widetilde r_g:U\subset\mathfrak g\to\R^m,
+    \qquad
+    \widetilde r_g(\delta\xi)=r(g\Exp(\delta\xi)),
+\]
+其中$U$是$0\in\mathfrak g$附近的邻域。
+\end{definition}
+
+显然
+\[
+    \widetilde r_g(0)=r(g).
+\]
+由于$\widetilde r_g$的定义域是线性空间$\mathfrak g$，可以在$0$处进行普通的一阶线性化：
+\[
+    \widetilde r_g(\delta\xi)
+    \simeq
+    r(g)+D\widetilde r_g\big|_0[\delta\xi].
+\]
+
+\subsection{Jacobian是微分在局部扰动坐标下的矩阵}
+
+先不固定右侧或左侧扰动。设$V$是一个与$G$维数相同的线性空间，并选择以$g$为中心的局部参数化
+\[
+    \Phi_g:U\subset V\to G,
+    \qquad
+    \Phi_g(0)=g.
+\]
+真正被线性化的不是抽象的群元素$g$，而是定义在线性空间上的局部残差
+\[
+    \widetilde r_g=r\circ\Phi_g:U\to\R^m.
+\]
+由微分链式法则，
+\[
+    \boxed{
+    d\widetilde r_g\big|_0
+    =dr_g\circ d\Phi_g\big|_0.
+    }
+\]
+这里$d\Phi_g|_0:V\to T_gG$先把所选扰动坐标解释为$g$处的实际切向量，$dr_g:T_gG\to\R^m$再把它变成残差变化。
+
+若采用本章前面默认的右侧扰动参数化
+\[
+    \Phi_g^{\mathrm{right}}(\delta\xi)
+    =g\Exp(\delta\xi)
+    =(L_g\circ\Exp)(\delta\xi),
+\]
+则
+\[
+\begin{aligned}
+    d\Phi_g^{\mathrm{right}}\big|_0
+    &=(dL_g)_e\circ d\Exp_0\\
+    &=(dL_g)_e,
+\end{aligned}
+\]
+因为$d\Exp_0=\operatorname{id}_{\mathfrak g}$。因此
+\[
+    \boxed{
+    d\bigl(r\circ\Phi_g^{\mathrm{right}}\bigr)_0
+    =dr_g\circ(dL_g)_e.
+    }
+\]
+
+选定$V\simeq\R^n$与$\R^m$的基后，这个线性映射的矩阵表示才是数值计算中的Jacobian$J_{\Phi_g}$：
+\[
+    r(\Phi_g(\delta u))
+    \simeq
+    r(g)+J_{\Phi_g}\delta u.
+\]
+所以Jacobian始终相对于局部参数化而言。选定$\Phi_g$以后，可以把$J_{\Phi_g}$计算为局部坐标函数对普通参数的偏导；但不能脱离$\Phi_g$，直接宣称某个残差在群上天然对应唯一一块Jacobian矩阵。
+
+右侧扰动只是一种选择。若改用左侧扰动，$d\Phi_g|_0$将由$(dL_g)_e$变成$(dR_g)_e$，同一残差的坐标Jacobian也随之改变。下一节从高等数学中的换元公式出发，系统说明这两种Jacobian为何不同、又为何由Adjoint联系。
+
+%——————————————————————————————————%
+
+\section{从高数换元Jacobian到李群上的左、右扰动Jacobian}
+
+这一节连接两类看似不同的求导问题：高等数学中更换变量后的Jacobian，以及位姿优化中更换左、右扰动坐标后的Jacobian。二者的共同结构都是
+\[
+    \text{选择局部参数}
+    \longrightarrow
+    \text{与目标映射复合}
+    \longrightarrow
+    \text{使用微分链式法则}.
+\]
+区别在于，欧氏空间的加法交换且各点切空间具有自然的全局识别，因此左、右两种群平移恰好重合；$\SE(3)$非交换，这个差别便不能再被隐藏。
+
+\subsection{Jacobian首先是微分的坐标矩阵}
+
+设
+\[
+    F:U\subset\R^n\to\R^m.
+\]
+在$x\in U$处，其微分是线性映射
+\[
+    dF_x:T_x\R^n\to T_{F(x)}\R^m.
+\]
+利用欧氏空间中的自然识别
+\[
+    T_x\R^n\simeq\R^n,
+    \qquad
+    T_{F(x)}\R^m\simeq\R^m,
+\]
+并选择标准基后，$dF_x$的矩阵为
+\[
+    J_F(x)
+    =\left[
+    \frac{\partial F^i}{\partial x^j}(x)
+    \right].
+\]
+因此Jacobian矩阵不是映射$F$本身，而是线性映射$dF_x$在所选基下的矩阵表示。对$\delta x\in T_x\R^n$，
+\[
+    F(x+\delta x)
+    =F(x)+dF_x(\delta x)+o(\|\delta x\|),
+\]
+在标准坐标下即
+\[
+    F(x+\delta x)
+    \simeq F(x)+J_F(x)\delta x.
+\]
+
+现在改用$u$描述同一个变量$x$。设
+\[
+    \phi:V\subset\R^k\to U,
+    \qquad
+    x=\phi(u),
+\]
+并令$r:U\to\R^m$。真正关于$u$求导的函数是复合映射
+\[
+    V\xrightarrow{\ \phi\ }U\xrightarrow{\ r\ }\R^m.
+\]
+链式法则给出
+\[
+    \boxed{
+    d(r\circ\phi)_u
+    =dr_{\phi(u)}\circ d\phi_u.
+    }
+\]
+在标准坐标下，这才写成常见的矩阵乘法
+\[
+    \boxed{
+    J_{r\circ\phi}(u)
+    =J_r(\phi(u))J_\phi(u).
+    }
+\]
+
+\begin{lieexample}{一维换元已经会改变Jacobian}
+令$r(x)=x^2$，并用$x=\phi(u)=e^u$换元，则
+\[
+    (r\circ\phi)(u)=e^{2u}.
+\]
+因为
+\[
+    \frac{dr}{dx}=2x,
+    \qquad
+    \frac{dx}{du}=e^u=x,
+\]
+所以
+\[
+    \frac{d(r\circ\phi)}{du}
+    =\frac{dr}{dx}\frac{dx}{du}
+    =2e^{2u}.
+\]
+同一个局部变化用$\delta x$或$\delta u$表示时满足
+\[
+    \delta x\simeq J_\phi(u)\delta u,
+    \qquad
+    \delta r\simeq J_r(x)J_\phi(u)\delta u.
+\]
+所以Jacobian始终相对于所选局部参数而言，这一问题并不是到了李群才出现。
+\end{lieexample}
+
+若$\phi$是局部微分同胚，$x=\phi(u)$，则还要区分正向与逆向换元：
+\[
+    d\phi_u:T_u\R^n\to T_x\R^n,
+    \qquad
+    d(\phi^{-1})_x:T_x\R^n\to T_u\R^n,
+\]
+且
+\[
+    J_{\phi^{-1}}(x)=J_\phi(u)^{-1}.
+\]
+因此高等数学中同样需要固定变量、映射方向和扰动所属空间。
+
+\subsection{为什么欧氏空间中左右扰动恰好重合}
+
+把$\R^n$看作加法李群，群运算、单位元和逆元分别为
+\[
+    x\cdot u=x+u,
+    \qquad
+    e=0,
+    \qquad
+    x^{-1}=-x.
+\]
+左、右平移为
+\[
+    L_x(u)=x+u,
+    \qquad
+    R_x(u)=u+x.
+\]
+由于加法交换，
+\[
+    \boxed{L_x=R_x.}
+\]
+而且对任意$u,v\in\R^n$，
+\[
+    \left.\frac{d}{dt}\right|_{t=0}L_x(u+tv)
+    =v
+    =\left.\frac{d}{dt}\right|_{t=0}R_x(u+tv),
+\]
+所以
+\[
+    \boxed{
+    (dL_x)_u=(dR_x)_u=\operatorname{id}_{\R^n}.
+    }
+\]
+
+从Adjoint角度看，加法群的共轭映射为
+\[
+    C_x(u)=x+u-x=u.
+\]
+故
+\[
+    \boxed{
+    \Ad_x=(dC_x)_0=I,
+    \qquad \forall x\in\R^n.
+    }
+\]
+因此欧氏空间中的左右更新及其扰动坐标完全相同：
+\[
+    x+\delta x=\delta x+x,
+    \qquad
+    \delta x_{\mathrm{left}}
+    =\Ad_x\delta x_{\mathrm{right}}
+    =\delta x_{\mathrm{right}}.
+\]
+
+高数中并非没有“不同局部参数导致不同Jacobian”的问题；只是$\R^n$作为交换加法群，其左右平移相同、平移微分为恒等且$\Ad=I$，所以无需再区分左右扰动。
+
+\subsection{$\SE(3)$上的两种局部扰动参数化}
+
+现在令状态为$T\in\SE(3)$，残差为
+\[
+    r:\SE(3)\to\R^m.
+\]
+对$\delta\xi\in\se(3)=T_I\SE(3)$，不能写$T+\delta\xi$，而要选择从$0\in\se(3)$到$T$邻域的局部参数化。按扰动放置侧记为
+\[
+    \psi_T^{\mathrm{right}}(\delta\xi_{\mathrm{right}})
+    =T\Exp(\delta\xi_{\mathrm{right}}),
+\]
+以及
+\[
+    \psi_T^{\mathrm{left}}(\delta\xi_{\mathrm{left}})
+    =\Exp(\delta\xi_{\mathrm{left}})T.
+\]
+二者都以$T$为中心：
+\[
+    \psi_T^{\mathrm{right}}(0)
+    =\psi_T^{\mathrm{left}}(0)
+    =T.
+\]
+但它们在$0$处的微分不同：
+\[
+    d\psi_T^{\mathrm{right}}\big|_0=(dL_T)_I,
+    \qquad
+    d\psi_T^{\mathrm{left}}\big|_0=(dR_T)_I.
+\]
+
+采用右侧扰动时，线性化的是
+\[
+    r\circ\psi_T^{\mathrm{right}}:\se(3)\to\R^m.
+\]
+在固定基下，将其$0$处微分的矩阵记为
+\[
+    \boxed{
+    J_R:=\left[d(r\circ\psi_T^{\mathrm{right}})_0\right].
+    }
+\]
+于是
+\[
+    r(T\Exp(\delta\xi_{\mathrm{right}}))
+    \simeq
+    r(T)+J_R\delta\xi_{\mathrm{right}}.
+\]
+
+采用左侧扰动时，线性化的是$r\circ\psi_T^{\mathrm{left}}$，并记
+\[
+    \boxed{
+    J_L:=\left[d(r\circ\psi_T^{\mathrm{left}})_0\right].
+    }
+\]
+于是
+\[
+    r(\Exp(\delta\xi_{\mathrm{left}})T)
+    \simeq
+    r(T)+J_L\delta\xi_{\mathrm{left}}.
+\]
+
+所以$J_R$与$J_L$不是同一矩阵的两种名称，而是同一个残差映射在两个不同局部参数化下所得微分的坐标矩阵。
+
+\subsection{左右残差Jacobian由Adjoint换元联系}
+
+前面已经得到扰动换边公式
+\[
+    T\Exp(\delta\xi_{\mathrm{right}})
+    =\Exp(\Ad_T\delta\xi_{\mathrm{right}})T.
+\]
+因此局部参数化满足
+\[
+    \psi_T^{\mathrm{right}}
+    =\psi_T^{\mathrm{left}}\circ\Ad_T.
+\]
+这里$\Ad_T:\se(3)\to\se(3)$是固定$T$后的线性换元
+\[
+    \delta\xi_{\mathrm{right}}
+    \longmapsto
+    \delta\xi_{\mathrm{left}}
+    =\Ad_T\delta\xi_{\mathrm{right}}.
+\]
+所以
+\[
+    r\circ\psi_T^{\mathrm{right}}
+    =r\circ\psi_T^{\mathrm{left}}\circ\Ad_T.
+\]
+在$0$处求微分并写成坐标矩阵，链式法则给出
+\[
+    \boxed{
+    J_R=J_L\Ad_T.
+    }
+\]
+等价地，
+\[
+    \boxed{
+    J_L=J_R\Ad_{T^{-1}}.
+    }
+\]
+这与高数中的$J_{r\circ\phi}=J_rJ_\phi$具有完全相同的结构。此时$\Ad_T$正是左右局部扰动坐标之间的换元Jacobian。
+
+\subsection{点变换残差的左右Jacobian}
+
+考虑最基础的位姿残差。约定位姿
+\[
+    T=
+    \begin{bmatrix}R&t\\0&1\end{bmatrix}
+\]
+把机体坐标系中的已知点$p\in\R^3$变换到世界坐标系：
+\[
+    q(T)=Rp+t.
+\]
+给定世界坐标系中的目标点$y\in\R^3$，定义
+\[
+    r(T)=q(T)-y=Rp+t-y.
+\]
+采用平移在前的twist排列
+\[
+    \delta\xi=
+    \begin{bmatrix}\delta v\\\delta\omega\end{bmatrix},
+    \qquad
+    \delta\xi^\wedge=
+    \begin{bmatrix}
+        (\delta\omega)^\wedge&\delta v\\
+        0&0
+    \end{bmatrix},
+\]
+并约定$a^\wedge b=a\times b$。
+
+\paragraph{左侧扰动。}
+令
+\[
+    T'=\Exp(\delta\xi_{\mathrm{left}}^\wedge)T,
+    \qquad
+    q:=Rp+t.
+\]
+使用一阶近似$\Exp(\delta\xi^\wedge)\simeq I_4+\delta\xi^\wedge$，有
+\[
+\begin{aligned}
+    q(T')
+    &\simeq
+    (I+(\delta\omega_{\mathrm{left}})^\wedge)q
+    +\delta v_{\mathrm{left}}\\
+    &=q+\delta v_{\mathrm{left}}
+    -q^\wedge\delta\omega_{\mathrm{left}}.
+\end{aligned}
+\]
+因此
+\[
+    r(T')
+    \simeq r(T)
+    +\begin{bmatrix}I&-q^\wedge\end{bmatrix}
+    \begin{bmatrix}
+        \delta v_{\mathrm{left}}\\
+        \delta\omega_{\mathrm{left}}
+    \end{bmatrix},
+\]
+从而
+\[
+    \boxed{
+    J_L=
+    \begin{bmatrix}
+        I&-(Rp+t)^\wedge
+    \end{bmatrix}.
+    }
+\]
+
+\paragraph{右侧扰动。}
+令
+\[
+    T'=T\Exp(\delta\xi_{\mathrm{right}}^\wedge).
+\]
+则
+\[
+\begin{aligned}
+    q(T')
+    &\simeq
+    R(I+(\delta\omega_{\mathrm{right}})^\wedge)p
+    +R\delta v_{\mathrm{right}}+t\\
+    &=q+R\delta v_{\mathrm{right}}
+    -R p^\wedge\delta\omega_{\mathrm{right}}.
+\end{aligned}
+\]
+因此
+\[
+    \boxed{
+    J_R=
+    \begin{bmatrix}
+        R&-R p^\wedge
+    \end{bmatrix}.
+    }
+\]
+
+这两个结果可由一般换元公式相互验证。由
+\[
+    \Ad_T=
+    \begin{bmatrix}
+        R&t^\wedge R\\
+        0&R
+    \end{bmatrix}
+\]
+可得
+\[
+\begin{aligned}
+    J_L\Ad_T
+    &=
+    \begin{bmatrix}
+        I&-q^\wedge
+    \end{bmatrix}
+    \begin{bmatrix}
+        R&t^\wedge R\\
+        0&R
+    \end{bmatrix}\\
+    &=
+    \begin{bmatrix}
+        R&t^\wedge R-q^\wedge R
+    \end{bmatrix}.
+\end{aligned}
+\]
+又因为$q=Rp+t$且
+\[
+    (Rp)^\wedge R=R p^\wedge,
+\]
+所以
+\[
+    t^\wedge R-q^\wedge R
+    =-(Rp)^\wedge R
+    =-R p^\wedge.
+\]
+最终得到
+\[
+    \boxed{
+    J_L\Ad_T
+    =\begin{bmatrix}R&-R p^\wedge\end{bmatrix}
+    =J_R.
+    }
+\]
+这不是碰巧成立的块矩阵恒等式，而是“同一残差、不同局部参数化、Adjoint换元、微分链式法则”的必然结果。
+
+\subsection{术语提醒：两类左、右Jacobian}
+
+本节的$J_L,J_R$是残差关于左、右位姿扰动的Jacobian：
+\[
+    \delta\xi_{\mathrm{left}}
+    \mapsto r(\Exp(\delta\xi_{\mathrm{left}})T),
+\]
+以及
+\[
+    \delta\xi_{\mathrm{right}}
+    \mapsto r(T\Exp(\delta\xi_{\mathrm{right}})).
+\]
+它们依赖具体残差$r$，并满足$J_R=J_L\Ad_T$。
+
+文献中还常把$J_l(\xi),J_r(\xi)$称为李群的左、右Jacobian。后者描述的是指数映射本身在非零$\xi$附近的微分，以及$\Exp(\xi+\delta\xi)$如何改写为指数乘积；它们不等于某个具体残差对位姿扰动的Jacobian。阅读公式时必须先确认作者讨论的是“残差的扰动Jacobian”，还是“指数映射的左、右Jacobian”。
+
+本节最重要的认识可概括为：
+\[
+    \boxed{
+    \text{Jacobian总是相对于所选局部扰动参数而言。}
+    }
+\]
+在$\R^n$中，左右构造因交换加法与$\Ad=I$而重合；在$\SE(3)$中，两种构造一般不同，并通过$\Ad_T$完成换元。
+
+%——————————————————————————————————%
+
+\section{后端优化的完整流程}
+
+\subsection{从代价函数到切空间二次模型}
+
+设有一组残差$r_i:G\to\R^{m_i}$，权重矩阵为$W_i$。SLAM后端的代价函数为
+\[
+    F(g)=\frac12\sum_i r_i(g)^\top W_i r_i(g).
+\]
+第$k$次迭代时，当前估计为$g_k\in\SE(3)$，优化变量不是$g_k$本身，而是切空间增量$\delta\xi\in\se(3)$。对每个残差定义
+\[
+    \widetilde r_{i,k}(\delta\xi)
+    =r_i\bigl(g_k\Exp(\delta\xi)\bigr)
+    \simeq r_i(g_k)+J_{i,k}\delta\xi.
+\]
+于是得到局部线性最小二乘问题
+\[
+    \delta\xi_k
+    =\arg\min_{\delta\xi}
+    \frac12\sum_i
+    \bigl(r_i(g_k)+J_{i,k}\delta\xi\bigr)^\top
+    W_i
+    \bigl(r_i(g_k)+J_{i,k}\delta\xi\bigr).
+\]
+
+令局部二次模型对$\delta\xi$的一阶导数为零，得到正规方程
+\[
+    H_k\delta\xi_k=-b_k,
+\]
+其中
+\[
+    H_k=\sum_iJ_{i,k}^\top W_iJ_{i,k},
+    \qquad
+    b_k=\sum_iJ_{i,k}^\top W_ir_i(g_k).
+\]
+求解增量后，在流形上更新
+\[
+    g_{k+1}=g_k\Exp(\delta\xi_k).
+\]
+
+\subsection{梯度、拉回与更新的关系}
+
+从微分几何角度，$dr_g$把状态切向量推到残差空间，而残差协向量通过对偶映射拉回：
+\[
+    dF_g=(dr_g)^*(Wr(g))\in T_g^\ast G.
+\]
+在选定李代数坐标和欧氏内积后，才可将其写成常见的坐标梯度
+\[
+    \nabla F=J^\top Wr.
+\]
+因此$J^\top Wr$不是脱离度量天然存在的切向量。它首先是协向量的坐标表示；算法利用所选度量、近似Hessian或正规方程把它转换为切空间中的求解方向。
+
+\begin{lieexample}{一次SLAM后端迭代的数据流}
+第$k$次迭代可以按以下顺序理解：
+\begin{enumerate}
+    \item 当前状态：$g_k\in\SE(3)$；
+    \item 优化变量：$\delta\xi\in\se(3)$；
+    \item 局部残差：$\widetilde r_{g_k}(\delta\xi)=r(g_k\Exp(\delta\xi))$；
+    \item 线性化：$\widetilde r_{g_k}(\delta\xi)\simeq r(g_k)+J_k\delta\xi$；
+    \item 在线性空间$\se(3)$中求解$\delta\xi_k$；
+    \item 在非线性流形上更新：$g_{k+1}=g_k\Exp(\delta\xi_k)$。
+\end{enumerate}
+BA、IMU预积分和激光点云匹配的差别只在残差$r_i$的具体形式，底层的“切空间求解、流形上更新”逻辑相同。
+\end{lieexample}
+
+%——————————————————————————————————%
+
+\section{容易混淆的几个概念}
+
+\begin{enumerate}
+    \item \textbf{$\SE(3)$不是$\R^6$。} $\R^6$可以作为$\se(3)$的坐标表示，也可以通过指数映射给出单位元附近的局部坐标，但不能把整个$\SE(3)$当作全局线性空间。
+
+    \item \textbf{增量不是位姿。} $\delta\xi$属于$T_eG=\mathfrak g$，$g$属于$G$。合法组合是$g\Exp(\delta\xi)$，不是$g+\delta\xi$。
+
+    \item \textbf{右乘更新不等于右平移。}
+    $g\Exp(\delta\xi)$是右乘更新；构造从$g$出发的曲线仍使用左平移$L_g(h)=gh$。
+
+    \item \textbf{平凡化名称不等于扰动放置侧。}
+    右侧扰动与左侧扰动分别写为
+    \[
+        g\Exp(\delta\xi_{\mathrm{right}}),
+        \qquad
+        \Exp(\delta\xi_{\mathrm{left}})g.
+    \]
+    前者由$(dL_g)_e$搬运，属于左平凡化；后者由$(dR_g)_e$搬运，属于右平凡化。
+
+    \item \textbf{伴随映射不是$6\times6$公式本身。}
+    $\Ad_g=(dC_g)_e:\mathfrak g\to\mathfrak g$是内蕴定义；$\Ad_T=\begin{bmatrix}R&t^\wedge R\\0&R\end{bmatrix}$只是它在$\se(3)\simeq\R^6$及选定分量排列下的矩阵表示。
+
+    \item \textbf{残差没有脱离扰动模型的唯一Jacobian矩阵。}
+    Jacobian是$d(r\circ\Phi_g)_0$在所选基下的矩阵。右侧参数化与左侧参数化给出$J_R,J_L$，二者满足$J_R=J_L\Ad_g$。
+
+    \item \textbf{残差的左右Jacobian不等于指数映射的左右Jacobian。}
+    $J_L,J_R$可表示残差关于左、右位姿扰动的导数；文献中的$J_l(\xi),J_r(\xi)$也常专指指数映射本身在$\xi$处的微分。必须结合定义域和复合映射判断含义。
+
+    \item \textbf{指数映射不是只针对矩阵的技巧。} 它由左不变向量场的积分曲线内蕴定义；矩阵指数只是选定矩阵表示后的计算公式。
+
+    \item \textbf{对数映射不是全局无歧义坐标。} $\Log$只在单位元附近作为局部逆使用，旋转的周期性会带来分支选择和连续性问题。
+
+    \item \textbf{BCH不是任意有限增量的普通加法。}
+    $\operatorname{BCH}(\xi,\eta)=\Log(\Exp(\xi)\Exp(\eta))$依赖同一个局部$\Log$分支；$\xi+\eta$只是它的一阶截断，二阶还包含$\frac12[\xi,\eta]$。
+
+    \item \textbf{Adjoint换边，BCH合成。}
+    $\Ad_g$把同一个单次扰动转换到另一种平凡化或放置侧；BCH把同一侧连续施加的两个指数扰动合并成一个指数扰动。两者不能互相替代。
+
+    \item \textbf{李括号不是普通的向量乘法。} 它记录左不变瞬时运动之间的非交换性，并通过BCH公式影响局部运动的复合。
+\end{enumerate}
+
+%——————————————————————————————————%
+
+\section{最终记忆框架}
+
+\begin{enumerate}
+    \item \textbf{李群$G$：} 光滑流形加上光滑群乘法和光滑求逆，描述全局合法状态，例如$\SO(3)$和$\SE(3)$。
+
+    \item \textbf{左、右平移：} 单位元与逆元公理保证$L_g(e)=R_g(e)=g$且两类平移为双射；李群光滑性进一步保证它们是微分同胚。因此
+    \[
+        (dL_g)_e,(dR_g)_e:\mathfrak g\to T_gG
+    \]
+    都是线性同构。
+
+    \item \textbf{李代数$\mathfrak g=T_eG$：} 单位元处的切空间。左平移把$\xi\in\mathfrak g$复制为整个群上的左不变向量场：
+    \[
+        X^\xi_g=(dL_g)_e\xi.
+    \]
+
+    \item \textbf{指数映射：} 把局部瞬时运动积分成有限合法群变换：
+    \[
+        \xi\xrightarrow{\ \Exp\ }\Exp(\xi)\in G.
+    \]
+
+    \item \textbf{伴随表示：} 共轭映射$C_g(h)=ghg^{-1}$在单位元处的微分
+    \[
+        \Ad_g=(dC_g)_e:\mathfrak g\to\mathfrak g
+    \]
+    转换同一个$v_g\in T_gG$的两种平凡化坐标：
+    \[
+        v_g=(dL_g)_e\xi^{(L)}=(dR_g)_e\xi^{(R)},
+        \qquad
+        \xi^{(R)}=\Ad_g\xi^{(L)}.
+    \]
+
+    \item \textbf{SLAM常用右侧扰动：}
+    \[
+        g_{\mathrm{new}}=g\Exp(\delta\xi).
+    \]
+    它与左侧扰动的换边关系为
+    \[
+        g\Exp(\delta\xi_{\mathrm{right}})
+        =\Exp(\Ad_g\delta\xi_{\mathrm{right}})g.
+    \]
+    数据流为
+    \[
+        \delta\xi\in T_eG
+        \xrightarrow{\ \Exp\ }
+        \Exp(\delta\xi)\in G
+        \xrightarrow{\ L_g\ }
+        g\Exp(\delta\xi)\in G.
+    \]
+
+    \item \textbf{李括号：} 刻画局部运动的非交换性。群交换子满足
+    \[
+        \Log\bigl(
+        \Exp(t\xi)\Exp(s\eta)
+        \Exp(-t\xi)\Exp(-s\eta)
+        \bigr)
+        =ts[\xi,\eta]+\text{更高阶项}.
+    \]
+
+    \item \textbf{BCH局部合成律：} 把单位元附近的群乘法搬回李代数：
+    \[
+        \operatorname{BCH}(\xi,\eta)
+        =\Log\bigl(\Exp(\xi)\Exp(\eta)\bigr),
+    \]
+    且
+    \[
+        \operatorname{BCH}(\xi,\eta)
+        =\xi+\eta+\frac12[\xi,\eta]+O(3).
+    \]
+    在欧氏加法群中$[\xi,\eta]=0$，所以BCH精确退化为$\xi+\eta$。
+
+    \item \textbf{Jacobian的几何本质：} 对任意局部参数化$\Phi_g(0)=g$，
+    \[
+        J_{\Phi_g}
+        \ \text{是}\
+        dr_g\circ d\Phi_g\big|_0
+        \ \text{在坐标下的矩阵表示}.
+    \]
+    对右侧与左侧扰动，分别有
+    \[
+        J_R=\left[dr_g\circ(dL_g)_e\right],
+        \qquad
+        J_L=\left[dr_g\circ(dR_g)_e\right],
+    \]
+    并满足
+    \[
+        J_R=J_L\Ad_g.
+    \]
+
+\end{enumerate}
+
+本章最重要的六句话是：
+\begin{enumerate}
+    \item $\SE(3)$不是六个独立数字构成的向量，而是全部合法刚体位姿组成的非线性流形；
+    \item $\se(3)$不是$\SE(3)$的另一种写法，而是单位元处描述微小运动的线性模板空间；
+    \item $\Exp$不是矩阵计算技巧，而是把局部瞬时运动积分成完整有限刚体变换的几何桥梁；
+    \item $\Ad_g$不是预先给定的坐标变换矩阵，而是共轭映射在单位元处的微分；它把同一切向量的左、右平凡化表示联系起来；
+    \item BCH不是两个李代数向量的普通加法，而是群乘法经局部$\Exp$与$\Log$搬回李代数后的合成律；它的首个非交换修正是$\frac12[\xi,\eta]$；
+    \item Jacobian不是残差自带的一块固定矩阵，而是残差与所选局部扰动参数化复合后的微分之坐标表示；欧氏空间中左右构造重合，在$\SE(3)$中则由Adjoint换元联系。
+\end{enumerate}

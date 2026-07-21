@@ -1,0 +1,1748 @@
+\chapter{IMU预积分：从连续流到关键帧之间的相对测量}
+
+%——————————————————————————————————%
+
+\newenvironment{imucase}[1]{%
+    \par\noindent\textbf{\color{main}例：#1}\rmfamily\par
+}{%
+    \par\ignorespacesafterend
+}
+
+第六章把连续时间动力学、流、采样和离散状态转移连接了起来。本章把这条主线落实到视觉惯性里程计和惯性导航中的一个核心对象：IMU预积分。
+
+预积分的关键并不是把许多角速度和加速度读数机械地累加，而是依次回答四个问题：
+\[
+\boxed{
+\begin{aligned}
+&\text{连续时间流形动力学的流}\\
+&\longrightarrow\text{消去关键帧初始状态后的相对流}\\
+&\longrightarrow\text{相对流对IMU测量与bias的依赖}\\
+&\longrightarrow\text{局部坐标中的递推、微分与协方差}
+\end{aligned}
+}
+\]
+
+设$t_i<t_j$是两个相邻关键帧时刻。区间$[t_i,t_j]$内可能包含数十或数百个IMU采样，而优化器会反复更新关键帧状态
+\[
+    R_i,v_i,p_i,R_j,v_j,p_j.
+\]
+若每次更新$R_i,v_i,p_i$后都从$t_i$重新积分全部IMU数据，计算会随着优化迭代反复发生。预积分要构造的正是一个只依赖区间内IMU数据和所选bias线性化点的相对测量：
+\[
+    \Delta_{ij}
+    =\bigl(\Delta R_{ij},\Delta v_{ij},\Delta p_{ij}\bigr).
+\]
+关键帧状态改变时，只需重新计算因子残差；只要bias改变量仍处在线性化有效范围内，就不必重新扫描整段IMU序列。
+
+本章始终区分三个层次：
+\[
+\begin{array}{c|c}
+\text{层次} & \text{对象}\\ \hline
+\text{连续几何} & \Delta R_i(t),\Delta v_i(t),\Delta p_i(t)\\
+\text{数值积分} & \bar{\Delta R}_{i,k},\bar{\Delta v}_{i,k},\bar{\Delta p}_{i,k}\\
+\text{优化因子} & r_R,r_v,r_p,r_{b_g},r_{b_a}
+\end{array}
+\]
+连续相对流是预积分的定义；离散递推只是对它的数值近似；残差则把预积分测量与待估计关键帧状态进行比较。把这三者混在一起，是预积分公式显得零散和难以检查的主要原因。
+
+%——————————————————————————————————%
+
+\section{为什么普通前向积分不适合反复优化}
+
+\subsection{前向积分对初始状态的依赖}
+
+若已知$t_i$时刻的状态和区间内的IMU输入，连续动力学给出一个有输入的状态转移
+\[
+    x(t)=\Phi^{u}_{t,t_i}(x_i),
+    \qquad
+    x_i=(R_i,v_i,p_i).
+\]
+在$t_j$处，普通前向积分得到
+\[
+    x_j=\Phi^{u}_{t_j,t_i}(x_i).
+\]
+这个表达在物理上完全正确，但它把区间内所有输入的积分结果与初值$x_i$绑在了一起。图优化或滑窗优化每次产生新的$x_i$后，直接实现往往再次调用同一段积分过程。
+
+预积分的目标不是构造另一个近似绝对状态，而是把状态转移分解为
+\[
+    \boxed{
+    \text{已知的初始状态作用}
+    \quad+\quad
+    \text{只由区间输入决定的相对流}.
+    }
+\]
+旋转部分的“作用”是群乘法，速度和位置部分则还要扣除初始速度与重力的已知积分项。因此这里的加号只表示概念上的组合，并不是在整个状态流形上做普通向量加法。
+
+\subsection{预积分节省的究竟是什么}
+
+设一段区间有$N$个IMU采样，非线性优化进行$L$次迭代。若每次都重新积分，单个区间的IMU处理大致重复$L$遍；预积分把这$N$个采样先压缩成固定维度的相对测量及其局部微分信息，优化迭代只处理固定维度残差。
+
+需要准确理解这个结论：
+\begin{enumerate}
+    \item 预积分没有丢掉关键帧状态。$R_i,v_i,p_i,R_j,v_j,p_j$仍然出现在因子残差中。
+    \item 预积分没有让bias完全消失。它在一个bias线性化点上积分，并保存对bias的Jacobian以进行局部修正。
+    \item 当bias变化过大、时间戳改变、IMU样本改变或积分区间改变时，仍然需要重新预积分。
+    \item 预积分减少的是优化迭代中对原始高频测量序列的重复积分，而不是取消状态估计本身。
+\end{enumerate}
+
+\begin{imucase}{关键帧与高频IMU}
+相机可能以$20\,\mathrm{Hz}$输出关键帧，IMU则以$200\,\mathrm{Hz}$采样。两个关键帧之间约有十个IMU区间。预积分先把这些区间压缩为一个连接状态$i$和状态$j$的测量；之后无论优化器更新这两个状态多少次，因子维数都不随IMU采样数增长。
+\end{imucase}
+
+%——————————————————————————————————%
+
+\section{物理量、坐标方向与状态空间}
+
+\subsection{旋转、速度与位置的约定}
+
+在开始推导前固定变换方向。令
+\[
+    R(t)=R_{W\leftarrow B(t)}\in\SO(3)
+\]
+表示把$t$时刻机体系$B(t)$中的坐标表示变换到世界系$W$：
+\[
+    q_W=R(t)q_B.
+\]
+位置和速度都在世界系表达：
+\[
+    p(t)=p_{W\leftarrow B(t)}\in\R^3,
+    \qquad
+    v(t)=\dot p(t)\in\R^3.
+\]
+不含bias时，导航状态属于乘积流形
+\[
+    \mathcal M
+    =\SO(3)\times\R^3\times\R^3.
+\]
+把bias也作为状态后可写成
+\[
+    \mathcal X
+    =\SO(3)\times\R^{12},
+\]
+其元素按顺序记为
+\[
+    x=(R,v,p,b_g,b_a).
+\]
+
+各对象的类型为
+\[
+\begin{array}{c|c|c}
+\text{对象} & \text{所在空间} & \text{含义}\\ \hline
+R(t) & \SO(3) & \text{姿态点}\\
+\dot R(t) & T_{R(t)}\SO(3) & \text{姿态曲线的速度}\\
+v(t),p(t) & \R^3 & \text{世界系速度与位置}\\
+b_g(t),b_a(t) & \R^3 & \text{机体系传感器bias}
+\end{array}
+\]
+特别地，$R(t)$和$\dot R(t)$不属于同一个空间；$\dot R(t)$也不是单位元切空间$\so(3)$中的元素。只有经过平凡化后，旋转速度才由$\so(3)$中的矩阵表示。
+
+\subsection{hat映射与叉乘约定}
+
+对$x\in\R^3$，记$x^\wedge\in\so(3)$为满足
+\[
+    x^\wedge y=x\times y,
+    \qquad y\in\R^3
+\]
+的反对称矩阵。因此有
+\[
+    x^\wedge y=-y^\wedge x.
+\]
+后续线性化中经常使用
+\[
+    \Exp(\delta\theta^\wedge)a
+    \simeq
+    a+\delta\theta\times a
+    =a-a^\wedge\delta\theta.
+\]
+这个负号来自叉乘的反交换性，而不是人为规定。
+
+\subsection{重力符号}
+
+记世界系中的重力加速度为常向量
+\[
+    g_W\in\R^3.
+\]
+例如，若世界系$z$轴向上，可以取$g_W=(0,0,-g)^	op$。本章的动力学统一写成
+\[
+    \dot v=g_W+Ra,
+\]
+所以$g_W$本身已经包含方向和符号。若另一套文献把$g$定义为向下的正标量或把重力项移到等式另一侧，残差中的符号会相应改变；不能只比较公式外形。
+
+%——————————————————————————————————%
+
+\section{IMU测量模型与连续导航动力学}
+
+\subsection{陀螺仪测量}
+
+陀螺仪输出建模为
+\[
+    \omega_m(t)
+    =\omega(t)+b_g(t)+n_g(t),
+\]
+其中$\omega(t)\in\R^3$是刚体相对于世界的角速度，以当前机体系坐标表示；$b_g(t)$是陀螺bias，$n_g(t)$是测量噪声。因而真实角速度为
+\[
+    \omega(t)=\omega_m(t)-b_g(t)-n_g(t).
+\]
+
+\subsection{加速度计测量的是比力}
+
+加速度计输出建模为
+\[
+    a_m(t)=a(t)+b_a(t)+n_a(t),
+\]
+其中$a(t)$是机体系中表达的比力。比力不是世界系线加速度。它扣除了引力作用，因此
+\[
+    \dot v(t)=g_W+R(t)a(t).
+\]
+由测量恢复比力可写为
+\[
+    a(t)=a_m(t)-b_a(t)-n_a(t).
+\]
+
+\begin{imucase}{静止IMU的读数不为零}
+若IMU静止，则$\dot v=0$。忽略bias和噪声后，动力学要求
+\[
+    0=g_W+Ra,
+    \qquad
+    a=-R^\top g_W.
+\]
+所以静止加速度计通常测到与重力方向相反、大小约为$g$的比力，而不是零。这个检查可以快速发现“把比力当作世界加速度”的错误。
+\end{imucase}
+
+\subsection{完整连续动力学}
+
+代入两类测量模型，导航方程为
+\[
+\boxed{
+\begin{aligned}
+    \dot R(t)
+    &=R(t)\bigl(\omega_m(t)-b_g(t)-n_g(t)\bigr)^\wedge,\\
+    \dot v(t)
+    &=g_W+R(t)\bigl(a_m(t)-b_a(t)-n_a(t)\bigr),\\
+    \dot p(t)
+    &=v(t).
+\end{aligned}
+}
+\]
+若bias采用随机游走模型，还可加入
+\[
+    \dot b_g(t)=n_{wg}(t),
+    \qquad
+    \dot b_a(t)=n_{wa}(t),
+\]
+其中$n_{wg},n_{wa}$是bias驱动噪声。预积分时通常在一个区间内以固定bias线性化点计算名义量，再用Jacobian描述小的bias变化；关键帧之间的bias随机游走则作为因子残差的一部分处理。
+
+\subsection{旋转方程的内蕴类型}
+
+旋转方程常写成
+\[
+    \dot R=R\omega^\wedge.
+\]
+严格地说，
+\[
+    \omega^\wedge\in\so(3)=T_I\SO(3),
+    \qquad
+    \dot R\in T_R\SO(3),
+\]
+二者由左平移的推前联系：
+\[
+    \dot R=(dL_R)_I(\omega^\wedge).
+\]
+在矩阵李群表示下，$(dL_R)_I(\omega^\wedge)=R\omega^\wedge$。若短时间内角速度近似恒定，则相应的指数曲线给出
+\[
+    R(t+\delta t)
+    \approx
+    R(t)\Exp(\omega^\wedge\delta t).
+\]
+增量虽然写在$R(t)$右边，但把单位元处切向量搬到$T_{R(t)}\SO(3)$的是左平移$L_{R(t)}$的微分。这与第五、六章的约定完全一致。
+
+%——————————————————————————————————%
+
+\section{预积分的内蕴对象：相对于关键帧的流}
+
+\subsection{从绝对状态中剥离初值}
+
+固定关键帧时刻$t_i$，并记
+\[
+    \tau:=t-t_i.
+\]
+定义相对于关键帧$i$的三个量：
+\[
+\boxed{
+    \Delta R_i(t):=R_i^\top R(t)\in\SO(3),
+}
+\]
+\[
+\boxed{
+    \Delta v_i(t)
+    :=R_i^\top\bigl(v(t)-v_i-g_W\tau\bigr)
+    \in\R^3,
+}
+\]
+\[
+\boxed{
+    \Delta p_i(t)
+    :=R_i^\top
+    \left(
+        p(t)-p_i-v_i\tau-\frac12g_W\tau^2
+    \right)
+    \in\R^3.
+}
+\]
+它们的初值是
+\[
+    \Delta R_i(t_i)=I,
+    \qquad
+    \Delta v_i(t_i)=0,
+    \qquad
+    \Delta p_i(t_i)=0.
+\]
+
+这些定义分别消去了：
+\begin{enumerate}
+    \item 旋转中的初始姿态$R_i$；
+    \item 速度中的初始速度$v_i$和已知重力积分$g_W\tau$；
+    \item 位置中的初始位置$p_i$、初始速度积分$v_i\tau$和重力二次项$\frac12g_W\tau^2$。
+\end{enumerate}
+同时左乘$R_i^\top$把剩余向量都改为在关键帧$i$的机体系$B_i$中表达。于是$\Delta v_i$和$\Delta p_i$既不是世界系量，也不是随时间变化的当前机体系量。
+
+\subsection{相对旋转动力学}
+
+由定义
+\[
+    \Delta R_i(t)=R_i^\top R(t)
+\]
+直接求导。$R_i=R(t_i)$对当前积分变量$t$而言是常量，因此
+\[
+\begin{aligned}
+    \dot{\Delta R}_i(t)
+    &=R_i^\top\dot R(t)\\
+    &=R_i^\top R(t)\omega(t)^\wedge\\
+    &=\Delta R_i(t)\omega(t)^\wedge.
+\end{aligned}
+\]
+代入测量模型得到
+\[
+\boxed{
+    \dot{\Delta R}_i(t)
+    =\Delta R_i(t)
+    \bigl(\omega_m(t)-b_g(t)-n_g(t)\bigr)^\wedge.
+}
+\]
+右端不再显式含有$R_i$。从内蕴角度看，
+\[
+    \dot{\Delta R}_i(t)
+    =(dL_{\Delta R_i(t)})_I
+    \bigl(\omega(t)^\wedge\bigr)
+    \in T_{\Delta R_i(t)}\SO(3).
+\]
+
+\subsection{相对速度动力学}
+
+对相对速度求导：
+\[
+\begin{aligned}
+    \dot{\Delta v}_i(t)
+    &=R_i^\top\frac{d}{dt}
+      \bigl(v(t)-v_i-g_W\tau\bigr)\\
+    &=R_i^\top\bigl(\dot v(t)-g_W\bigr).
+\end{aligned}
+\]
+因为$\dot v-g_W=Ra$，所以
+\[
+\begin{aligned}
+    \dot{\Delta v}_i(t)
+    &=R_i^\top R(t)a(t)\\
+    &=\Delta R_i(t)a(t).
+\end{aligned}
+\]
+代入加速度计模型：
+\[
+\boxed{
+    \dot{\Delta v}_i(t)
+    =\Delta R_i(t)
+    \bigl(a_m(t)-b_a(t)-n_a(t)\bigr).
+}
+\]
+初始速度和重力已经从相对量定义中消失；相对速度只由相对旋转和区间内比力驱动。
+
+\subsection{相对位置动力学}
+
+对相对位置求导：
+\[
+\begin{aligned}
+    \dot{\Delta p}_i(t)
+    &=R_i^\top
+      \frac{d}{dt}
+      \left(
+          p(t)-p_i-v_i\tau-\frac12g_W\tau^2
+      \right)\\
+    &=R_i^\top
+      \bigl(\dot p(t)-v_i-g_W\tau\bigr)\\
+    &=R_i^\top
+      \bigl(v(t)-v_i-g_W\tau\bigr)\\
+    &=\Delta v_i(t).
+\end{aligned}
+\]
+因此
+\[
+\boxed{
+    \dot{\Delta p}_i(t)=\Delta v_i(t).
+}
+\]
+
+\subsection{连续预积分系统}
+
+将三条方程合并，得到预积分的连续时间相对动力学：
+\[
+\boxed{
+\begin{aligned}
+    \dot{\Delta R}_i
+    &=\Delta R_i(\omega_m-b_g-n_g)^\wedge,\\
+    \dot{\Delta v}_i
+    &=\Delta R_i(a_m-b_a-n_a),\\
+    \dot{\Delta p}_i
+    &=\Delta v_i,
+\end{aligned}
+\qquad
+\begin{aligned}
+    \Delta R_i(t_i)&=I,\\
+    \Delta v_i(t_i)&=0,\\
+    \Delta p_i(t_i)&=0.
+\end{aligned}
+}
+\]
+这组系统才是预积分最核心的数学对象。它的初值是固定的单位相对状态，右端只含区间内IMU输入、bias和噪声，不再显式依赖待优化的$R_i,v_i,p_i$。
+
+\begin{proposition}[相对流消去关键帧初始导航状态]
+固定区间$[t_i,t_j]$内的IMU输入、bias轨迹和噪声轨迹。由上述初值问题得到的
+\[
+    \Delta R_i(t),\Delta v_i(t),\Delta p_i(t)
+\]
+不显式依赖$R_i,v_i,p_i$。绝对状态对初值的依赖只在从相对量回收绝对状态时重新出现。
+\end{proposition}
+
+这里“不显式依赖”不表示所有物理量都与参考系无关。相对速度和相对位置仍然选择了$B_i$作为表达坐标系；改变关键帧$i$的物理姿态会改变绝对状态关系，但预积分初值问题本身始终从$(I,0,0)$出发。
+
+%——————————————————————————————————%
+
+\section{从相对流回收关键帧状态关系}
+
+令
+\[
+    \Delta t_{ij}:=t_j-t_i
+\]
+并记
+\[
+    \Delta R_{ij}:=\Delta R_i(t_j),
+    \qquad
+    \Delta v_{ij}:=\Delta v_i(t_j),
+    \qquad
+    \Delta p_{ij}:=\Delta p_i(t_j).
+\]
+由相对量定义直接整理可得
+\[
+\boxed{
+    R_j=R_i\Delta R_{ij},
+}
+\]
+\[
+\boxed{
+    v_j=v_i+g_W\Delta t_{ij}+R_i\Delta v_{ij},
+}
+\]
+\[
+\boxed{
+    p_j=p_i+v_i\Delta t_{ij}
+    +\frac12g_W\Delta t_{ij}^2
+    +R_i\Delta p_{ij}.
+}
+\]
+三式中的坐标作用可以逐项检查：
+\begin{enumerate}
+    \item $\Delta R_{ij}=R_i^\top R_j$是从$B_j$坐标到$B_i$坐标的旋转表示；与$R_i$复合后得到$R_j$。
+    \item $\Delta v_{ij}$在$B_i$中表达，左乘$R_i$后成为世界系速度增量。
+    \item $\Delta p_{ij}$同样在$B_i$中表达，左乘$R_i$后才能与$p_i$、$v_i\Delta t_{ij}$和重力项相加。
+\end{enumerate}
+
+把三式反向整理，则状态变量本身给出的相对运动为
+\[
+    R_i^\top R_j,
+\]
+\[
+    R_i^\top(v_j-v_i-g_W\Delta t_{ij}),
+\]
+\[
+    R_i^\top
+    \left(
+        p_j-p_i-v_i\Delta t_{ij}
+        -\frac12g_W\Delta t_{ij}^2
+    \right).
+\]
+它们正是后续IMU因子中要与预积分测量比较的三个预测相对量。
+
+\begin{imucase}{零运动一致性检查}
+若刚体在世界中静止，$R_j=R_i$、$v_i=v_j=0$且$p_i=p_j$。忽略噪声和bias后，IMU给出$\omega=0$与$a=-R_i^\top g_W$。相对系统积分得到
+\[
+    \Delta R_{ij}=I,
+    \qquad
+    \Delta v_{ij}=-R_i^\top g_W\Delta t_{ij},
+    \qquad
+    \Delta p_{ij}=-\frac12R_i^\top g_W\Delta t_{ij}^2.
+\]
+代回回收公式后，重力项与比力积分恰好抵消，得到$v_j=0$和$p_j=p_i$。这再次说明预积分的$\Delta v$、$\Delta p$没有单独扣除加速度计读数中的重力；重力是通过相对量定义在世界系状态关系中显式处理的。
+\end{imucase}
+
+\section{离散预积分：对连续相对流的数值近似}
+
+\subsection{采样、线性化bias与名义输入}
+
+设IMU采样时刻为
+\[
+    t_i,t_{i+1},\ldots,t_j,
+    \qquad
+    \Delta t_k:=t_{k+1}-t_k.
+\]
+在预积分区间内选择bias线性化点
+\[
+    \bar b_g,\bar b_a\in\R^3.
+\]
+最简单的零阶保持假设认为，在每个$[t_k,t_{k+1})$内，测量与线性化bias保持常量。定义名义去bias输入
+\[
+    \widehat\omega_k:=\omega_{m,k}-\bar b_g,
+    \qquad
+    \widehat a_k:=a_{m,k}-\bar b_a,
+\]
+以及旋转向量
+\[
+    \phi_k:=\widehat\omega_k\Delta t_k.
+\]
+名义预积分量用上方横线标记，并以
+\[
+    \bar{\Delta R}_{i,i}=I,
+    \qquad
+    \bar{\Delta v}_{i,i}=0,
+    \qquad
+    \bar{\Delta p}_{i,i}=0
+\]
+初始化。下标$(i,k)$表示“从关键帧$i$预积分到采样时刻$k$”。
+
+\subsection{旋转递推}
+
+在单个采样区间内，把$\widehat\omega_k$视为常量，旋转相对流的指数更新为
+\[
+\boxed{
+    \bar{\Delta R}_{i,k+1}
+    =\bar{\Delta R}_{i,k}\Exp(\phi_k^\wedge).
+}
+\]
+记
+\[
+    A_k:=\Exp(\phi_k^\wedge)\in\SO(3),
+\]
+则$\bar{\Delta R}_{i,k+1}=\bar{\Delta R}_{i,k}A_k$。每一步都由群乘法组成，所以只要初值在$\SO(3)$中，忽略浮点误差后所有递推结果也都在$\SO(3)$中。
+
+\subsection{速度与位置递推}
+
+对速度采用区间起点姿态近似
+\[
+    \Delta R_i(t)\widehat a_k
+    \approx
+    \bar{\Delta R}_{i,k}\widehat a_k,
+    \qquad t\in[t_k,t_{k+1}),
+\]
+即可积分得到
+\[
+\boxed{
+    \bar{\Delta v}_{i,k+1}
+    =\bar{\Delta v}_{i,k}
+    +\bar{\Delta R}_{i,k}\widehat a_k\Delta t_k.
+}
+\]
+再把区间内相对加速度视为常量，对位置作二次积分：
+\[
+\boxed{
+\begin{aligned}
+    \bar{\Delta p}_{i,k+1}
+    ={}&\bar{\Delta p}_{i,k}
+    +\bar{\Delta v}_{i,k}\Delta t_k\\
+    &+\frac12\bar{\Delta R}_{i,k}
+      \widehat a_k\Delta t_k^2.
+\end{aligned}
+}
+\]
+所以本章采用的基本离散递推为
+\[
+\boxed{
+\begin{aligned}
+    \bar{\Delta R}_{i,k+1}
+    &=\bar{\Delta R}_{i,k}\Exp(\phi_k^\wedge),\\
+    \bar{\Delta v}_{i,k+1}
+    &=\bar{\Delta v}_{i,k}
+      +\bar{\Delta R}_{i,k}\widehat a_k\Delta t_k,\\
+    \bar{\Delta p}_{i,k+1}
+    &=\bar{\Delta p}_{i,k}
+      +\bar{\Delta v}_{i,k}\Delta t_k
+      +\frac12\bar{\Delta R}_{i,k}
+       \widehat a_k\Delta t_k^2.
+\end{aligned}
+}
+\]
+
+\subsection{这组递推精确了什么，又近似了什么}
+
+当$\widehat\omega_k$在区间内恒定时，旋转更新$A_k=\Exp(\phi_k^\wedge)$是该旋转子系统的精确区间流。速度与位置公式则把旋转后的比力冻结在区间起点，因此一般只是低阶近似：即使$\widehat a_k$在机体系中恒定，只要刚体同时旋转，世界到$B_i$表达下的$\Delta R_i(t)\widehat a_k$仍然会在区间内变化。
+
+更高精度实现可以采用：
+\begin{enumerate}
+    \item 中值积分，用相邻两个采样的平均角速度和平均比力；
+    \item 对$\Delta R_i(t)\widehat a_k$进行解析积分，引入旋转积分矩阵；
+    \item Runge--Kutta或其他适合流形状态的数值积分器；
+    \item 对原始IMU先完成时间同步、插值和传感器标定，再进行预积分。
+\end{enumerate}
+这些方法改变的是对同一连续相对流的数值近似，不改变$\Delta R_i,\Delta v_i,\Delta p_i$的几何定义。
+
+\begin{imucase}{不能混搭不同积分器的Jacobian}
+若名义量使用中值积分，而bias Jacobian和协方差递推仍照搬区间起点公式，那么三者对应的就不是同一个离散一步映射。一个实现可以选择不同精度的积分器，但名义递推、bias微分和噪声微分必须从同一个一步映射推导。
+\end{imucase}
+
+%——————————————————————————————————%
+
+\section{预积分是关于bias的映射}
+
+\subsection{为什么需要bias线性化}
+
+固定区间内的IMU样本序列后，预积分定义了一个映射
+\[
+    \mathcal P_{ij}:
+    \R^3\times\R^3
+    \longrightarrow
+    \SO(3)\times\R^3\times\R^3,
+\]
+\[
+    (b_g,b_a)
+    \longmapsto
+    \bigl(
+        \Delta R_{ij}(b_g),
+        \Delta v_{ij}(b_g,b_a),
+        \Delta p_{ij}(b_g,b_a)
+    \bigr).
+\]
+陀螺bias直接影响每一步旋转，因此还会通过旋转后的比力间接影响速度和位置。加速度计bias不影响本章模型中的旋转，但直接影响速度和位置。
+
+若优化过程中bias从线性化点
+\[
+    \bar b=(\bar b_g,\bar b_a)
+\]
+变为
+\[
+    b=\bar b+\delta b,
+    \qquad
+    \delta b=(\delta b_g,\delta b_a),
+\]
+完全精确的处理需要在新bias处重新积分。为了避免小幅bias更新就重复扫描全部IMU，先保存$d\mathcal P_{ij}$在所选局部坐标中的矩阵表示，再作一阶修正。
+
+\subsection{旋转不能用普通加法修正}
+
+速度和位置落在欧氏空间，可以用一阶加法：
+\[
+\begin{aligned}
+    \Delta v_{ij}(\bar b+\delta b)
+    &\simeq
+    \bar{\Delta v}_{ij}
+    +J_{v g,ij}\delta b_g
+    +J_{v a,ij}\delta b_a,\\
+    \Delta p_{ij}(\bar b+\delta b)
+    &\simeq
+    \bar{\Delta p}_{ij}
+    +J_{p g,ij}\delta b_g
+    +J_{p a,ij}\delta b_a.
+\end{aligned}
+\]
+旋转则必须先选择局部参数化。本章采用右侧局部坐标：
+\[
+\boxed{
+    \Delta R_{ij}(\bar b_g+\delta b_g)
+    \simeq
+    \bar{\Delta R}_{ij}
+    \Exp\bigl((J_{R g,ij}\delta b_g)^\wedge\bigr).
+}
+\]
+其中$J_{R g,ij}\in\R^{3\times3}$不是把旋转矩阵对bias逐元素求导得到的任意矩阵，而是$d\mathcal P_{ij}$的旋转分量经过右平凡化后，在标准基下的坐标表示。
+
+\subsection{指数映射的右Jacobian}
+
+为推导$J_{R g}$，需要一个与第五章“残差关于右扰动的Jacobian”不同的对象。定义$\SO(3)$指数映射的右Jacobian$J_r(\phi)$，使得对小量$\delta\phi$有
+\[
+\boxed{
+    \Exp\bigl((\phi+\delta\phi)^\wedge\bigr)
+    \simeq
+    \Exp(\phi^\wedge)
+    \Exp\bigl((J_r(\phi)\delta\phi)^\wedge\bigr).
+}
+\]
+若$\theta=\|\phi\|$，其闭式为
+\[
+    J_r(\phi)
+    =I-\frac{1-\cos\theta}{\theta^2}\phi^\wedge
+      +\frac{\theta-\sin\theta}{\theta^3}(\phi^\wedge)^2.
+\]
+在$\theta$很小时，应使用级数
+\[
+    J_r(\phi)
+    =I-\frac12\phi^\wedge
+      +\frac16(\phi^\wedge)^2+\mathcal O(\theta^3)
+\]
+以避免闭式中的数值消减。
+
+这里$J_r(\phi)$描述$\Exp$在非零$\phi$处的微分；后面因子残差关于状态变量的Jacobian则描述另一张复合映射的微分。二者名称相近，但定义域、值域和用途都不同。
+
+\subsection{陀螺bias Jacobian递推}
+
+假设在第$k$步已有
+\[
+    \Delta R_{i,k}(\bar b_g+\delta b_g)
+    \simeq
+    \bar{\Delta R}_{i,k}
+    \Exp\bigl((J_{R g,i,k}\delta b_g)^\wedge\bigr).
+\]
+新bias下的单步旋转向量是
+\[
+    \phi_k-\delta b_g\Delta t_k.
+\]
+利用指数映射右Jacobian，
+\[
+\begin{aligned}
+    &\Exp\bigl((\phi_k-\delta b_g\Delta t_k)^\wedge\bigr)\\
+    &\qquad\simeq
+    A_k
+    \Exp\bigl((-J_r(\phi_k)\delta b_g\Delta t_k)^\wedge\bigr).
+\end{aligned}
+\]
+再使用旋转恒等式
+\[
+    \Exp(\eta^\wedge)A_k
+    =A_k\Exp\bigl((A_k^\top\eta)^\wedge\bigr),
+\]
+把旧误差搬到新名义旋转右侧，可得
+\[
+\begin{aligned}
+    \Delta R_{i,k+1}
+    \simeq{}&
+    \bar{\Delta R}_{i,k}A_k\\
+    &\cdot\Exp\left(
+      \left(
+        \bigl[A_k^\top J_{R g,i,k}
+        -J_r(\phi_k)\Delta t_k\bigr]\delta b_g
+      \right)^\wedge
+    \right),
+\end{aligned}
+\]
+其中忽略了bias扰动的二阶乘积。因此
+\[
+\boxed{
+    J_{R g,i,k+1}
+    =A_k^\top J_{R g,i,k}
+    -J_r(\phi_k)\Delta t_k,
+    \qquad
+    J_{R g,i,i}=0.
+}
+\]
+
+\subsection{速度bias Jacobian递推}
+
+在小扰动下
+\[
+\begin{aligned}
+    &\Delta R_{i,k}(\bar b_g+\delta b_g)
+      \bigl(\widehat a_k-\delta b_a\bigr)\\
+    &\quad\simeq
+    \bar{\Delta R}_{i,k}
+    \Exp\bigl((J_{R g,i,k}\delta b_g)^\wedge\bigr)
+    \bigl(\widehat a_k-\delta b_a\bigr)\\
+    &\quad\simeq
+    \bar{\Delta R}_{i,k}\widehat a_k
+    -\bar{\Delta R}_{i,k}\widehat a_k^\wedge
+     J_{R g,i,k}\delta b_g
+    -\bar{\Delta R}_{i,k}\delta b_a.
+\end{aligned}
+\]
+与速度名义递推比较，得到
+\[
+\boxed{
+\begin{aligned}
+    J_{v g,i,k+1}
+    &=J_{v g,i,k}
+      -\bar{\Delta R}_{i,k}\widehat a_k^\wedge
+       J_{R g,i,k}\Delta t_k,\\
+    J_{v a,i,k+1}
+    &=J_{v a,i,k}
+      -\bar{\Delta R}_{i,k}\Delta t_k,
+\end{aligned}
+}
+\]
+初值均为零。
+
+\subsection{位置bias Jacobian递推}
+
+同理，对位置一步映射求微分：
+\[
+\boxed{
+\begin{aligned}
+    J_{p g,i,k+1}
+    ={}&J_{p g,i,k}
+      +J_{v g,i,k}\Delta t_k\\
+      &-\frac12\bar{\Delta R}_{i,k}\widehat a_k^\wedge
+       J_{R g,i,k}\Delta t_k^2,\\
+    J_{p a,i,k+1}
+    ={}&J_{p a,i,k}
+      +J_{v a,i,k}\Delta t_k
+      -\frac12\bar{\Delta R}_{i,k}\Delta t_k^2.
+\end{aligned}
+}
+\]
+初值同样为
+\[
+    J_{p g,i,i}=0,
+    \qquad
+    J_{p a,i,i}=0.
+\]
+
+\subsection{区间终点的一阶bias修正}
+
+递推到$t_j$后，保存
+\[
+    J_{R g,ij},J_{v g,ij},J_{v a,ij},J_{p g,ij},J_{p a,ij}.
+\]
+优化器当前bias与预积分线性化点之差为
+\[
+    \delta b_g=b_{g,i}-\bar b_g,
+    \qquad
+    \delta b_a=b_{a,i}-\bar b_a.
+\]
+于是修正后的预积分测量为
+\[
+\boxed{
+\begin{aligned}
+    \Delta R_{ij}^{\mathrm{corr}}
+    &=\bar{\Delta R}_{ij}
+      \Exp\bigl((J_{R g,ij}\delta b_g)^\wedge\bigr),\\
+    \Delta v_{ij}^{\mathrm{corr}}
+    &=\bar{\Delta v}_{ij}
+      +J_{v g,ij}\delta b_g
+      +J_{v a,ij}\delta b_a,\\
+    \Delta p_{ij}^{\mathrm{corr}}
+    &=\bar{\Delta p}_{ij}
+      +J_{p g,ij}\delta b_g
+      +J_{p a,ij}\delta b_a.
+\end{aligned}
+}
+\]
+这些只是围绕$(\bar b_g,\bar b_a)$的一阶近似。实现中通常设置bias重积分阈值；当$\|\delta b_g\|$或$\|\delta b_a\|$超过阈值时，在新的线性化点重新预积分，以免高阶误差持续累积。
+
+\begin{imucase}{bias符号的快速检查}
+本章定义$\widehat\omega=\omega_m-\bar b_g$和$\widehat a=a_m-\bar b_a$。因此bias增大时，去bias后的输入减小，$J_{R g}$和$J_{v a}$的单步直接项都带负号。若采用相反的bias误差定义，例如$\delta b=\bar b-b$，所有相关Jacobian的符号也会随之改变。
+\end{imucase}
+
+%——————————————————————————————————%
+\section{测量噪声如何传播到预积分协方差}
+
+\subsection{先定义误差坐标}
+
+预积分旋转的误差仍然不能用矩阵相减表示。本章继续采用右侧局部误差：
+\[
+    \Delta R_{i,k}
+    =\bar{\Delta R}_{i,k}\Exp(\delta\theta_{i,k}^\wedge).
+\]
+速度和位置误差采用欧氏加法：
+\[
+    \Delta v_{i,k}
+    =\bar{\Delta v}_{i,k}+\delta v_{i,k},
+    \qquad
+    \Delta p_{i,k}
+    =\bar{\Delta p}_{i,k}+\delta p_{i,k}.
+\]
+将局部误差堆叠为
+\[
+    \delta z_{i,k}
+    :=
+    \begin{bmatrix}
+        \delta\theta_{i,k}\\
+        \delta v_{i,k}\\
+        \delta p_{i,k}
+    \end{bmatrix}
+    \in\R^9.
+\]
+这里协方差描述的是这组局部坐标的不确定性，而不是$3\times3$旋转矩阵九个元素的普通协方差。
+
+\subsection{单步旋转误差}
+
+令$n_{g,k}$是在区间$[t_k,t_{k+1})$内采用的离散陀螺噪声样本。含噪声的单步输入为
+\[
+    \phi_k-n_{g,k}\Delta t_k.
+\]
+由上一节指数映射右Jacobian的定义，
+\[
+    \Exp\bigl((\phi_k-n_{g,k}\Delta t_k)^\wedge\bigr)
+    \simeq
+    A_k\Exp\bigl((-J_r(\phi_k)n_{g,k}\Delta t_k)^\wedge\bigr).
+\]
+再将旧误差穿过$A_k$，得到
+\[
+\boxed{
+    \delta\theta_{i,k+1}
+    \simeq
+    A_k^\top\delta\theta_{i,k}
+    -J_r(\phi_k)n_{g,k}\Delta t_k.
+}
+\]
+
+\subsection{单步速度与位置误差}
+
+含噪声的旋转后比力满足
+\[
+\begin{aligned}
+    &\bar{\Delta R}_{i,k}
+      \Exp(\delta\theta_{i,k}^\wedge)
+      (\widehat a_k-n_{a,k})\\
+    &\quad\simeq
+    \bar{\Delta R}_{i,k}\widehat a_k
+    -\bar{\Delta R}_{i,k}\widehat a_k^\wedge
+     \delta\theta_{i,k}
+    -\bar{\Delta R}_{i,k}n_{a,k}.
+\end{aligned}
+\]
+于是
+\[
+\boxed{
+\begin{aligned}
+    \delta v_{i,k+1}
+    \simeq{}&\delta v_{i,k}
+    -\bar{\Delta R}_{i,k}\widehat a_k^\wedge
+     \delta\theta_{i,k}\Delta t_k\\
+    &-\bar{\Delta R}_{i,k}n_{a,k}\Delta t_k,
+\end{aligned}
+}
+\]
+以及
+\[
+\boxed{
+\begin{aligned}
+    \delta p_{i,k+1}
+    \simeq{}&\delta p_{i,k}
+    +\delta v_{i,k}\Delta t_k\\
+    &-\frac12\bar{\Delta R}_{i,k}\widehat a_k^\wedge
+     \delta\theta_{i,k}\Delta t_k^2\\
+    &-\frac12\bar{\Delta R}_{i,k}n_{a,k}\Delta t_k^2.
+\end{aligned}
+}
+\]
+
+\subsection{一步误差映射及其Jacobian}
+
+定义离散噪声向量
+\[
+    \eta_k
+    :=
+    \begin{bmatrix}
+        n_{g,k}\\
+        n_{a,k}
+    \end{bmatrix}
+    \in\R^6.
+\]
+上面三式可统一写成
+\[
+    \delta z_{i,k+1}
+    \simeq
+    F_k\delta z_{i,k}+G_k\eta_k,
+\]
+其中
+\[
+\boxed{
+F_k=
+\begin{bmatrix}
+    A_k^\top & 0 & 0\\
+    -\bar{\Delta R}_{i,k}\widehat a_k^\wedge\Delta t_k
+        & I & 0\\
+    -\frac12\bar{\Delta R}_{i,k}\widehat a_k^\wedge\Delta t_k^2
+        & I\Delta t_k & I
+\end{bmatrix}
+}
+\]
+和
+\[
+\boxed{
+G_k=
+\begin{bmatrix}
+    -J_r(\phi_k)\Delta t_k & 0\\
+    0 & -\bar{\Delta R}_{i,k}\Delta t_k\\
+    0 & -\frac12\bar{\Delta R}_{i,k}\Delta t_k^2
+\end{bmatrix}.
+}
+\]
+这里$F_k$是离散一步流对旧局部误差的微分之矩阵表示，$G_k$是同一步流对噪声输入的微分之矩阵表示。它们不是另外假设出来的系统矩阵。
+
+\subsection{协方差递推}
+
+设$\eta_k$零均值、不同采样区间相互独立，并具有离散协方差
+\[
+    Q_k=\operatorname{Cov}(\eta_k).
+\]
+以
+\[
+    P_{i,i}=0
+\]
+初始化预积分协方差，则一阶传播为
+\[
+\boxed{
+    P_{i,k+1}
+    =F_kP_{i,k}F_k^\top+G_kQ_kG_k^\top.
+}
+\]
+递推到$t_j$得到$P_{ij}\in\R^{9\times9}$。它包含旋转、速度、位置误差之间的交叉协方差；不能只保存三个互不相关的$3\times3$方差块。
+
+\subsection{离散协方差与连续噪声密度不能混用}
+
+上式中的$Q_k$被定义为区间内离散噪声样本$\eta_k$的协方差，因此$G_k$中显式包含$\Delta t_k$。若数据手册给出的是连续白噪声谱密度$Q_c$，就需要先按所采用的采样模型离散化。
+
+例如把连续白噪声在区间上的平均值作为$n_k$时，常见关系是
+\[
+    \operatorname{Cov}(n_k)=\frac{Q_c}{\Delta t_k}.
+\]
+代入带$\Delta t_k$的$G_k$后，单步积分噪声方差呈正确的$Q_c\Delta t_k$量级。另一种实现也可以把积分后的噪声增量直接定义为随机变量，此时$G_k$和$Q_k$中的时间因子分配会不同。只要随机变量定义一致，两种写法可以等价；若把连续密度直接当离散样本方差代入，则协方差会多出或缺少$\Delta t_k$因子。
+
+\subsection{bias随机游走的扩展}
+
+若希望在同一传播中包含bias不确定性，可扩展局部误差为
+\[
+    \delta x_k
+    =\begin{bmatrix}
+        \delta\theta_k&\delta v_k&\delta p_k&
+        \delta b_{g,k}&\delta b_{a,k}
+      \end{bmatrix}^\top\in\R^{15}.
+\]
+此时$F_k$增加的关键块正是bias Jacobian的一步增量，例如
+\[
+    F_{\theta b_g}=-J_r(\phi_k)\Delta t_k,
+    \qquad
+    F_{v b_a}=-\bar{\Delta R}_{i,k}\Delta t_k,
+\]
+\[
+    F_{p b_a}=-\frac12\bar{\Delta R}_{i,k}\Delta t_k^2,
+\]
+并加入bias随机游走噪声$n_{wg},n_{wa}$。工程中也常把$9$维预积分测量协方差与关键帧间bias随机游走协方差分别维护，最后在IMU因子中联合加权。两种组织方式都可以，但必须明确残差排列与协方差排列一致。
+
+%——————————————————————————————————%
+
+\section{从预积分测量到IMU因子残差}
+
+\subsection{状态预测的三个相对量}
+
+给定待优化的两个关键帧状态，定义由状态预测出的相对量
+\[
+    R_{ij}^{\mathrm{pred}}:=R_i^\top R_j,
+\]
+\[
+    v_{ij}^{\mathrm{pred}}
+    :=R_i^\top(v_j-v_i-g_W\Delta t_{ij}),
+\]
+\[
+    p_{ij}^{\mathrm{pred}}
+    :=R_i^\top
+      \left(
+        p_j-p_i-v_i\Delta t_{ij}
+        -\frac12g_W\Delta t_{ij}^2
+      \right).
+\]
+它们与预积分测量采用同一坐标约定：旋转是$R_i^\top R_j$，速度和位置向量都在$B_i$中表达。
+
+\subsection{先修正bias，再比较几何对象}
+
+用当前$b_{g,i},b_{a,i}$与预积分线性化点之差构造
+\[
+    \Delta R_{ij}^{\mathrm{corr}},
+    \quad
+    \Delta v_{ij}^{\mathrm{corr}},
+    \quad
+    \Delta p_{ij}^{\mathrm{corr}}.
+\]
+旋转测量与旋转预测都在$\SO(3)$中，不能直接相减。先定义误差群元素
+\[
+    E_R
+    :=(\Delta R_{ij}^{\mathrm{corr}})^{-1}
+      R_i^\top R_j
+    \in\SO(3).
+\]
+预测与测量一致时$E_R=I$，再通过局部对数映射得到
+\[
+\boxed{
+    r_R
+    :=\Log(E_R)^\vee
+    =\Log\left(
+      (\Delta R_{ij}^{\mathrm{corr}})^{-1}R_i^\top R_j
+    \right)^\vee
+    \in\R^3.
+}
+\]
+这里用$^\vee$强调矩阵李代数元素最终被表示成三维坐标；若约定$\Log:\SO(3)\to\R^3$已经包含vee映射，也可省略它。
+
+速度和位置残差是同一欧氏空间中两个向量的差：
+\[
+\boxed{
+    r_v
+    :=R_i^\top(v_j-v_i-g_W\Delta t_{ij})
+      -\Delta v_{ij}^{\mathrm{corr}},
+}
+\]
+\[
+\boxed{
+\begin{aligned}
+    r_p
+    :={}&R_i^\top
+      \left(
+        p_j-p_i-v_i\Delta t_{ij}
+        -\frac12g_W\Delta t_{ij}^2
+      \right)\\
+      &-\Delta p_{ij}^{\mathrm{corr}}.
+\end{aligned}
+}
+\]
+
+\subsection{bias演化残差}
+
+若bias服从零均值随机游走，在两个关键帧之间的条件均值保持不变，因此常用残差
+\[
+\boxed{
+    r_{b_g}:=b_{g,j}-b_{g,i},
+    \qquad
+    r_{b_a}:=b_{a,j}-b_{a,i}.
+}
+\]
+相应协方差由bias随机游走噪声密度与区间长度决定。最终IMU因子残差堆叠为
+\[
+\boxed{
+    r_{ij}^{\mathrm{IMU}}
+    =
+    \begin{bmatrix}
+        r_R\\r_v\\r_p\\r_{b_g}\\r_{b_a}
+    \end{bmatrix}
+    \in\R^{15}.
+}
+\]
+
+\subsection{协方差加权与白化}
+
+设与上述残差排列一致的协方差为$\Sigma_{ij}$。因子代价写为
+\[
+    \|r_{ij}^{\mathrm{IMU}}\|_{\Sigma_{ij}^{-1}}^2
+    =(r_{ij}^{\mathrm{IMU}})^\top
+      \Sigma_{ij}^{-1}r_{ij}^{\mathrm{IMU}}.
+\]
+若$\Sigma_{ij}=LL^\top$是Cholesky分解，则白化残差为
+\[
+    \widetilde r_{ij}=L^{-1}r_{ij}^{\mathrm{IMU}},
+\]
+优化器最小化$\|\widetilde r_{ij}\|^2$。旋转协方差与$r_R$必须使用同一种局部误差坐标；如果传播时使用右误差，残差却换成未转换的左误差协方差，权重就不再描述同一个随机量。
+
+%——————————————————————————————————%
+
+\section{因子Jacobian来自残差与局部参数化的复合}
+
+\subsection{固定优化扰动约定}
+
+对姿态采用右侧扰动，对欧氏状态采用加法：
+\[
+\begin{aligned}
+    R_i'&=R_i\Exp(\delta\theta_i^\wedge),
+    &R_j'&=R_j\Exp(\delta\theta_j^\wedge),\\
+    v_i'&=v_i+\delta v_i,
+    &v_j'&=v_j+\delta v_j,\\
+    p_i'&=p_i+\delta p_i,
+    &p_j'&=p_j+\delta p_j,\\
+    b_i'&=b_i+\delta b_i,
+    &b_j'&=b_j+\delta b_j.
+\end{aligned}
+\]
+优化Jacobian是
+\[
+    d\bigl(r_{ij}^{\mathrm{IMU}}\circ\Phi_{x_i,x_j}\bigr)_0
+\]
+在上述扰动坐标和残差标准基下的矩阵。若改用左侧姿态扰动，局部参数化$\Phi$发生改变，Jacobian也必须通过链式法则和Adjoint变换，而不是只替换更新式。
+
+\subsection{速度与位置残差的主要Jacobian块}
+
+为缩短记号，令
+\[
+    q_v:=R_i^\top(v_j-v_i-g_W\Delta t_{ij}),
+\]
+\[
+    q_p:=R_i^\top
+      \left(
+        p_j-p_i-v_i\Delta t_{ij}
+        -\frac12g_W\Delta t_{ij}^2
+      \right).
+\]
+因为
+\[
+    \Exp(-\delta\theta_i^\wedge)q
+    \simeq q+q^\wedge\delta\theta_i,
+\]
+速度残差的一阶变化为
+\[
+\begin{aligned}
+    \delta r_v
+    ={}&q_v^\wedge\delta\theta_i
+      -R_i^\top\delta v_i
+      +R_i^\top\delta v_j\\
+      &-J_{v g,ij}\delta b_{g,i}
+      -J_{v a,ij}\delta b_{a,i}.
+\end{aligned}
+\]
+位置残差的一阶变化为
+\[
+\begin{aligned}
+    \delta r_p
+    ={}&q_p^\wedge\delta\theta_i
+      -R_i^\top\delta p_i
+      +R_i^\top\delta p_j\\
+      &-R_i^\top\delta v_i\Delta t_{ij}
+      -J_{p g,ij}\delta b_{g,i}
+      -J_{p a,ij}\delta b_{a,i}.
+\end{aligned}
+\]
+这些式子直接显示了坐标约定的作用：由于相对向量在$B_i$中表达，只有$R_i$的扰动直接改变它们的表达坐标；$R_j$不出现在当前定义的$r_v,r_p$中。
+
+\subsection{旋转残差的局部微分}
+
+令
+\[
+    E_R=(\Delta R_{ij}^{\mathrm{corr}})^\top R_i^\top R_j,
+    \qquad
+    r_R=\Log(E_R)^\vee.
+\]
+先暂时固定bias。右扰动后，误差群元素满足
+\[
+\begin{aligned}
+    E_R'
+    &=(\Delta R_{ij}^{\mathrm{corr}})^\top
+      \Exp(-\delta\theta_i^\wedge)
+      R_i^\top R_j
+      \Exp(\delta\theta_j^\wedge)\\
+    &=\Exp\left(
+        -\bigl((\Delta R_{ij}^{\mathrm{corr}})^\top
+          \delta\theta_i\bigr)^\wedge
+      \right)
+      E_R
+      \Exp(\delta\theta_j^\wedge).
+\end{aligned}
+\]
+记$J_l(r_R),J_r(r_R)$为$\SO(3)$指数映射的左、右Jacobian。对数映射的一阶变化给出
+\[
+\boxed{
+\begin{aligned}
+    \delta r_R
+    ={}&-J_l(r_R)^{-1}
+       (\Delta R_{ij}^{\mathrm{corr}})^\top
+       \delta\theta_i\\
+      &+J_r(r_R)^{-1}\delta\theta_j
+      -J_l(r_R)^{-1}J_{R g,ij}\delta b_{g,i},
+\end{aligned}
+}
+\]
+其中最后一项写在bias线性化点$b_{g,i}=\bar b_g$处。若当前bias修正量不为零，还应对
+\[
+    \bar{\Delta R}_{ij}
+    \Exp\bigl((J_{R g,ij}(b_{g,i}-\bar b_g))^\wedge\bigr)
+\]
+这整个修正映射继续使用指数映射Jacobian和链式法则求微分。
+
+当旋转残差已经很小时，
+\[
+    J_l(r_R)^{-1}\simeq I,
+    \qquad
+    J_r(r_R)^{-1}\simeq I,
+\]
+上式退化为常见的近零残差一阶形式。但在较大残差处直接把两个逆Jacobian都替换为$I$，会额外引入线性化近似。
+
+\subsection{bias残差Jacobian}
+
+bias随机游走残差是欧氏差，因此
+\[
+    \delta r_{b_g}=\delta b_{g,j}-\delta b_{g,i},
+    \qquad
+    \delta r_{b_a}=\delta b_{a,j}-\delta b_{a,i}.
+\]
+其Jacobian块分别是$(-I,I)$。至此，IMU因子的所有Jacobian都来自同一个复合过程：
+\[
+\boxed{
+\text{选择状态局部扰动}
+\longrightarrow
+\text{代入几何残差}
+\longrightarrow
+\text{在零扰动处求微分}
+\longrightarrow
+\text{写成矩阵块}.
+}
+\]
+
+\begin{imucase}{数值差分应差分哪一个函数}
+检查解析Jacobian时，不应对旋转矩阵元素直接加减。应对已经固定的局部参数化做中心差分，例如
+\[
+    \frac{
+      r(R_i\Exp(\epsilon e_s^\wedge))-r(R_i\Exp(-\epsilon e_s^\wedge))
+    }{2\epsilon}.
+\]
+只有数值差分与解析推导采用同一左、右扰动约定、同一$\Log$分支和同一bias误差定义，比较才有意义。
+\end{imucase}
+
+%——————————————————————————————————%
+\section{完整推导：从原始IMU到预积分因子}
+
+前面的各节分别解释了物理模型、相对流、离散化、bias微分、噪声传播和因子残差。本节不再展开旁支，只固定一套约定，把完整推导从起点连续写到终点，作为本章结束时的复习主线和实现索引。
+
+\subsection*{第一步：固定状态、坐标与测量模型}
+
+姿态采用
+\[
+    R(t)=R_{W\leftarrow B(t)},
+    \qquad
+    q_W=R(t)q_B,
+\]
+速度、位置和重力均在世界系表达：
+\[
+    v(t),p(t),g_W\in\R^3.
+\]
+IMU测量模型为
+\[
+    \omega_m=\omega+b_g+n_g,
+    \qquad
+    a_m=a+b_a+n_a.
+\]
+因此
+\[
+    \omega=\omega_m-b_g-n_g,
+    \qquad
+    a=a_m-b_a-n_a,
+\]
+连续导航动力学是
+\[
+\boxed{
+\begin{aligned}
+    \dot R&=R(\omega_m-b_g-n_g)^\wedge,\\
+    \dot v&=g_W+R(a_m-b_a-n_a),\\
+    \dot p&=v.
+\end{aligned}
+}
+\]
+
+\subsection*{第二步：定义相对于关键帧$i$的状态}
+
+令$\tau=t-t_i$，定义
+\[
+\boxed{
+\begin{aligned}
+    \Delta R_i(t)
+    &:=R_i^\top R(t),\\
+    \Delta v_i(t)
+    &:=R_i^\top\bigl(v(t)-v_i-g_W\tau\bigr),\\
+    \Delta p_i(t)
+    &:=R_i^\top
+      \left(
+        p(t)-p_i-v_i\tau-\frac12g_W\tau^2
+      \right).
+\end{aligned}
+}
+\]
+初值为
+\[
+    \Delta R_i(t_i)=I,
+    \qquad
+    \Delta v_i(t_i)=0,
+    \qquad
+    \Delta p_i(t_i)=0.
+\]
+
+\subsection*{第三步：从定义求导，得到连续预积分系统}
+
+旋转部分：
+\[
+\begin{aligned}
+    \dot{\Delta R}_i
+    &=R_i^\top\dot R\\
+    &=R_i^\top R(\omega_m-b_g-n_g)^\wedge\\
+    &=\Delta R_i(\omega_m-b_g-n_g)^\wedge.
+\end{aligned}
+\]
+速度部分：
+\[
+\begin{aligned}
+    \dot{\Delta v}_i
+    &=R_i^\top(\dot v-g_W)\\
+    &=R_i^\top R(a_m-b_a-n_a)\\
+    &=\Delta R_i(a_m-b_a-n_a).
+\end{aligned}
+\]
+位置部分：
+\[
+\begin{aligned}
+    \dot{\Delta p}_i
+    &=R_i^\top(\dot p-v_i-g_W\tau)\\
+    &=R_i^\top(v-v_i-g_W\tau)\\
+    &=\Delta v_i.
+\end{aligned}
+\]
+所以
+\[
+\boxed{
+\begin{aligned}
+    \dot{\Delta R}_i
+    &=\Delta R_i(\omega_m-b_g-n_g)^\wedge,\\
+    \dot{\Delta v}_i
+    &=\Delta R_i(a_m-b_a-n_a),\\
+    \dot{\Delta p}_i
+    &=\Delta v_i,
+\end{aligned}
+\qquad
+\begin{aligned}
+    \Delta R_i(t_i)&=I,\\
+    \Delta v_i(t_i)&=0,\\
+    \Delta p_i(t_i)&=0.
+\end{aligned}
+}
+\]
+这一步已经消去了$R_i,v_i,p_i$在微分方程右端的显式出现。
+
+忽略噪声并暂时视bias为已知时，连续积分形式为
+\[
+    \Delta R_i(t)
+    =\mathcal T\Exp\left(
+       \int_{t_i}^{t}(\omega_m(s)-b_g(s))^\wedge ds
+      \right),
+\]
+其中$\mathcal T$表示按时间顺序复合非交换的旋转增量。其余两项为
+\[
+\boxed{
+    \Delta v_i(t)
+    =\int_{t_i}^{t}
+      \Delta R_i(s)(a_m(s)-b_a(s))\,ds,
+}
+\]
+\[
+\boxed{
+\begin{aligned}
+    \Delta p_i(t)
+    &=\int_{t_i}^{t}\Delta v_i(s)\,ds\\
+    &=\int_{t_i}^{t}
+      (t-s)\Delta R_i(s)(a_m(s)-b_a(s))\,ds.
+\end{aligned}
+}
+\]
+最后一式由交换积分次序得到。它清楚表明：位置预积分不是对加速度简单乘以总时间平方，而是对每个时刻的旋转后比力按剩余时间$t-s$加权。
+
+\subsection*{第四步：在$t_j$回收关键帧关系}
+
+令
+\[
+    \Delta t_{ij}=t_j-t_i,
+    \qquad
+    \Delta R_{ij}=\Delta R_i(t_j),
+    \quad
+    \Delta v_{ij}=\Delta v_i(t_j),
+    \quad
+    \Delta p_{ij}=\Delta p_i(t_j).
+\]
+由定义反解得到
+\[
+\boxed{
+\begin{aligned}
+    R_j
+    &=R_i\Delta R_{ij},\\
+    v_j
+    &=v_i+g_W\Delta t_{ij}+R_i\Delta v_{ij},\\
+    p_j
+    &=p_i+v_i\Delta t_{ij}
+      +\frac12g_W\Delta t_{ij}^2
+      +R_i\Delta p_{ij}.
+\end{aligned}
+}
+\]
+因此$(\Delta R_{ij},\Delta v_{ij},\Delta p_{ij})$正是连接两个关键帧的相对测量。
+
+\subsection*{第五步：用离散IMU样本近似连续相对流}
+
+选择bias线性化点$(\bar b_g,\bar b_a)$，定义
+\[
+    \widehat\omega_k=\omega_{m,k}-\bar b_g,
+    \qquad
+    \widehat a_k=a_{m,k}-\bar b_a,
+\]
+\[
+    \phi_k=\widehat\omega_k\Delta t_k,
+    \qquad
+    A_k=\Exp(\phi_k^\wedge).
+\]
+从
+\[
+    \bar{\Delta R}_{i,i}=I,
+    \qquad
+    \bar{\Delta v}_{i,i}=0,
+    \qquad
+    \bar{\Delta p}_{i,i}=0
+\]
+开始，采用本章的零阶保持离散化：
+\[
+\boxed{
+\begin{aligned}
+    \bar{\Delta R}_{i,k+1}
+    &=\bar{\Delta R}_{i,k}A_k,\\
+    \bar{\Delta v}_{i,k+1}
+    &=\bar{\Delta v}_{i,k}
+      +\bar{\Delta R}_{i,k}\widehat a_k\Delta t_k,\\
+    \bar{\Delta p}_{i,k+1}
+    &=\bar{\Delta p}_{i,k}
+      +\bar{\Delta v}_{i,k}\Delta t_k
+      +\frac12\bar{\Delta R}_{i,k}
+       \widehat a_k\Delta t_k^2.
+\end{aligned}
+}
+\]
+遍历$k=i,\ldots,j-1$后得到名义预积分量
+\[
+    \bar{\Delta R}_{ij},
+    \qquad
+    \bar{\Delta v}_{ij},
+    \qquad
+    \bar{\Delta p}_{ij}.
+\]
+
+\subsection*{第六步：同时递推bias Jacobian}
+
+采用右侧旋转bias误差
+\[
+    \Delta R_{i,k}(\bar b_g+\delta b_g)
+    \simeq
+    \bar{\Delta R}_{i,k}
+    \Exp\bigl((J_{R g,i,k}\delta b_g)^\wedge\bigr).
+\]
+指数映射右Jacobian由
+\[
+    \Exp((\phi+\delta\phi)^\wedge)
+    \simeq
+    \Exp(\phi^\wedge)
+    \Exp((J_r(\phi)\delta\phi)^\wedge)
+\]
+定义。所有bias Jacobian以零初始化，并按
+\[
+\boxed{
+\begin{aligned}
+    J_{R g,i,k+1}
+    &=A_k^\top J_{R g,i,k}
+      -J_r(\phi_k)\Delta t_k,\\
+    J_{v g,i,k+1}
+    &=J_{v g,i,k}
+      -\bar{\Delta R}_{i,k}\widehat a_k^\wedge
+       J_{R g,i,k}\Delta t_k,\\
+    J_{v a,i,k+1}
+    &=J_{v a,i,k}
+      -\bar{\Delta R}_{i,k}\Delta t_k,\\
+    J_{p g,i,k+1}
+    &=J_{p g,i,k}+J_{v g,i,k}\Delta t_k
+      -\frac12\bar{\Delta R}_{i,k}\widehat a_k^\wedge
+       J_{R g,i,k}\Delta t_k^2,\\
+    J_{p a,i,k+1}
+    &=J_{p a,i,k}+J_{v a,i,k}\Delta t_k
+      -\frac12\bar{\Delta R}_{i,k}\Delta t_k^2
+\end{aligned}
+}
+\]
+递推。优化时令
+\[
+    \delta b_g=b_{g,i}-\bar b_g,
+    \qquad
+    \delta b_a=b_{a,i}-\bar b_a,
+\]
+得到一阶修正
+\[
+\boxed{
+\begin{aligned}
+    \Delta R_{ij}^{\mathrm{corr}}
+    &=\bar{\Delta R}_{ij}
+      \Exp((J_{R g,ij}\delta b_g)^\wedge),\\
+    \Delta v_{ij}^{\mathrm{corr}}
+    &=\bar{\Delta v}_{ij}
+      +J_{v g,ij}\delta b_g+J_{v a,ij}\delta b_a,\\
+    \Delta p_{ij}^{\mathrm{corr}}
+    &=\bar{\Delta p}_{ij}
+      +J_{p g,ij}\delta b_g+J_{p a,ij}\delta b_a.
+\end{aligned}
+}
+\]
+
+\subsection*{第七步：同时递推局部噪声协方差}
+
+定义右侧预积分误差
+\[
+    \Delta R_{i,k}
+    =\bar{\Delta R}_{i,k}\Exp(\delta\theta_{i,k}^\wedge),
+    \qquad
+    \Delta v_{i,k}=\bar{\Delta v}_{i,k}+\delta v_{i,k},
+    \qquad
+    \Delta p_{i,k}=\bar{\Delta p}_{i,k}+\delta p_{i,k},
+\]
+并令
+\[
+    \delta z_{i,k}
+    =\begin{bmatrix}\delta\theta_{i,k}&\delta v_{i,k}&\delta p_{i,k}\end{bmatrix}^\top,
+    \qquad
+    \eta_k
+    =\begin{bmatrix}n_{g,k}&n_{a,k}\end{bmatrix}^\top.
+\]
+一步线性误差系统为
+\[
+    \delta z_{i,k+1}
+    \simeq F_k\delta z_{i,k}+G_k\eta_k,
+\]
+其中
+\[
+\boxed{
+F_k=
+\begin{bmatrix}
+    A_k^\top & 0 & 0\\
+    -\bar{\Delta R}_{i,k}\widehat a_k^\wedge\Delta t_k
+        & I & 0\\
+    -\frac12\bar{\Delta R}_{i,k}\widehat a_k^\wedge\Delta t_k^2
+        & I\Delta t_k & I
+\end{bmatrix},
+}
+\]
+\[
+\boxed{
+G_k=
+\begin{bmatrix}
+    -J_r(\phi_k)\Delta t_k & 0\\
+    0 & -\bar{\Delta R}_{i,k}\Delta t_k\\
+    0 & -\frac12\bar{\Delta R}_{i,k}\Delta t_k^2
+\end{bmatrix}.
+}
+\]
+若$Q_k=\operatorname{Cov}(\eta_k)$，则
+\[
+\boxed{
+    P_{i,i}=0,
+    \qquad
+    P_{i,k+1}=F_kP_{i,k}F_k^\top+G_kQ_kG_k^\top.
+}
+\]
+递推终点得到$P_{ij}$。
+
+\subsection*{第八步：构造关键帧之间的IMU残差}
+
+状态给出的相对预测为
+\[
+    R_i^\top R_j,
+    \qquad
+    R_i^\top(v_j-v_i-g_W\Delta t_{ij}),
+\]
+\[
+    R_i^\top
+    \left(
+      p_j-p_i-v_i\Delta t_{ij}
+      -\frac12g_W\Delta t_{ij}^2
+    \right).
+\]
+与bias修正后的预积分测量比较，定义
+\[
+\boxed{
+\begin{aligned}
+    r_R
+    &=\Log\left(
+      (\Delta R_{ij}^{\mathrm{corr}})^{-1}R_i^\top R_j
+      \right)^\vee,\\
+    r_v
+    &=R_i^\top(v_j-v_i-g_W\Delta t_{ij})
+      -\Delta v_{ij}^{\mathrm{corr}},\\
+    r_p
+    &=R_i^\top
+      \left(
+        p_j-p_i-v_i\Delta t_{ij}
+        -\frac12g_W\Delta t_{ij}^2
+      \right)
+      -\Delta p_{ij}^{\mathrm{corr}},\\
+    r_{b_g}
+    &=b_{g,j}-b_{g,i},\\
+    r_{b_a}
+    &=b_{a,j}-b_{a,i}.
+\end{aligned}
+}
+\]
+最终
+\[
+\boxed{
+    r_{ij}^{\mathrm{IMU}}
+    =\begin{bmatrix}
+      r_R&r_v&r_p&r_{b_g}&r_{b_a}
+     \end{bmatrix}^\top,
+}
+\]
+并以与这套局部误差坐标一致的协方差$\Sigma_{ij}$加权：
+\[
+\boxed{
+    E_{ij}^{\mathrm{IMU}}
+    =(r_{ij}^{\mathrm{IMU}})^\top
+      \Sigma_{ij}^{-1}r_{ij}^{\mathrm{IMU}}.
+}
+\]
+优化器对所选状态局部参数化线性化这个残差，求出切空间增量，再通过旋转指数映射和欧氏加法更新状态。至此，原始高频IMU样本已经被压缩为
+\[
+\boxed{
+\left(
+\bar{\Delta R}_{ij},
+\bar{\Delta v}_{ij},
+\bar{\Delta p}_{ij},
+J_{ij},
+P_{ij},
+\Delta t_{ij}
+\right),
+}
+\]
+其中$J_{ij}$统称保存的bias Jacobian块。这些固定维度对象共同构成关键帧$i$与$j$之间的预积分测量。
+
+%——————————————————————————————————%
+
+\section{本章小结：预积分是相对流及其微分}
+
+IMU预积分的完整逻辑可以压缩为
+\[
+\boxed{
+\begin{aligned}
+&\text{IMU测量定义乘积流形上的连续导航动力学}\\
+&\Longrightarrow
+\text{相对于关键帧$i$定义}(\Delta R_i,\Delta v_i,\Delta p_i)\\
+&\Longrightarrow
+\text{相对动力学不再显式依赖}R_i,v_i,p_i\\
+&\Longrightarrow
+\text{离散IMU序列被积分为固定维度相对测量}\\
+&\Longrightarrow
+d\mathcal P_{ij}\text{给出bias Jacobian与噪声传播矩阵}\\
+&\Longrightarrow
+\text{相对测量与关键帧状态组成IMU因子残差}.
+\end{aligned}
+}
+\]
+
+因此，预积分不是一组互不相关的工程公式。名义预积分量、bias Jacobian、噪声协方差和优化Jacobian分别是同一个相对流映射的值、对bias的微分、对噪声的微分，以及因子残差与状态局部参数化复合后的微分。
+
+这一章最终需要保留的对象关系是
+\[
+\boxed{
+\text{连续绝对流}
+\longrightarrow
+\text{连续相对流}
+\longrightarrow
+\text{离散预积分映射}
+\longrightarrow
+\text{局部微分与协方差}
+\longrightarrow
+\text{IMU因子}.
+}
+\]
+一旦这条主线固定，改变积分器、bias误差定义、左/右扰动或噪声离散方式都不再是孤立地修改公式，而是对相应映射重新应用同一套微分与坐标转换规则。

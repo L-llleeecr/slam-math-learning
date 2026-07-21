@@ -1,0 +1,1211 @@
+\chapter{公理化集合论：从逻辑语言到数学对象的构造}
+
+%——————————————————————————————————%
+
+数学中常见的对象有
+\[
+    \N,\quad \Z,\quad \Q,\quad \R,\quad
+    \R^n,\quad \text{函数},\quad \text{空间},\quad \text{群}.
+\]
+我们通常把它们当作已经存在的对象，然后在其上继续定义结构、证明定理。但如果继续追问：什么是一个数学对象？什么是集合？为什么允许形成$\{x,y\}$、$\bigcup A$和$\mathcal P(A)$？为什么不能形成“所有不包含自身的集合构成的集合”？一个足够强的公理系统能否证明所有真命题？就进入了逻辑与公理化集合论。
+
+本章不把集合论压缩成后续拓扑的量词速查，而是保留一条完整的基础路线：
+\[
+\boxed{\begin{gathered}
+\text{命题逻辑}\longrightarrow\text{谓词逻辑}
+\longrightarrow\text{公理系统与证明}\longrightarrow\text{Gödel边界}\\
+\longrightarrow\in\text{关系}\longrightarrow\text{ZF/ZFC}
+\longrightarrow\text{集合、映射、等价关系与数系构造}.
+\end{gathered}}
+\]
+
+这里的目标不是把数理逻辑和集合论的所有细节都证明一遍，而是理解一种基础性的数学图景：
+\[
+\boxed{
+\text{从少数原始符号和规则出发，}\
+\text{逐步建造出丰富的数学对象；同时承认形式化建造自身的边界。}
+}
+\]
+从自然数到实数的严格构造需要较长的工作。本章会给出构造所依赖的公理、等价关系和商集机制，并明确标出哪些部分是构造思想的纲要。
+
+%——————————————————————————————————%
+
+\section{命题逻辑}
+
+\subsection{命题与真值}
+
+\begin{definition}[命题]
+一个能够明确判断真或假的陈述句称为命题。命题的真值只有两种：
+\[
+    \mathrm T=\text{true},
+    \qquad
+    \mathrm F=\text{false}.
+\]
+\end{definition}
+
+例如
+\[
+    p:\quad 2+2=4
+\]
+是真命题，而
+\[
+    q:\quad 2+2=5
+\]
+是假命题。表达式
+\[
+    x>0
+\]
+在没有指定$x$的取值时，通常还不是一个具有确定真值的完整命题；它是一个谓词，后面会用量词把它变成命题。
+
+\subsection{逻辑联结词}
+
+对命题$p$，最基本的一元运算是否定：
+\[
+    \neg p.
+\]
+其真值表为
+\[
+\begin{array}{c|c}
+    p&\neg p\\ \hline
+    \mathrm T&\mathrm F\\
+    \mathrm F&\mathrm T
+\end{array}
+\]
+
+给定命题$p,q$，常用二元联结词为
+\[
+    p\land q,
+    \qquad
+    p\lor q,
+    \qquad
+    p\Rightarrow q,
+    \qquad
+    p\Leftrightarrow q.
+\]
+它们分别表示“$p$且$q$”“$p$或$q$”“若$p$则$q$”以及“$p$当且仅当$q$”。完整真值表为
+\[
+\begin{array}{c|c|c|c|c|c}
+    p&q&p\land q&p\lor q&p\Rightarrow q&p\Leftrightarrow q\\ \hline
+    \mathrm T&\mathrm T&\mathrm T&\mathrm T&\mathrm T&\mathrm T\\
+    \mathrm T&\mathrm F&\mathrm F&\mathrm T&\mathrm F&\mathrm F\\
+    \mathrm F&\mathrm T&\mathrm F&\mathrm T&\mathrm T&\mathrm F\\
+    \mathrm F&\mathrm F&\mathrm F&\mathrm F&\mathrm T&\mathrm T
+\end{array}
+\]
+
+蕴含$p\Rightarrow q$只在$p$真而$q$假时为假。因此
+\[
+    p\Rightarrow q
+    \Longleftrightarrow
+    \neg p\lor q.
+\]
+等价$p\Leftrightarrow q$表示两个方向的蕴含同时成立：
+\[
+    p\Leftrightarrow q
+    \Longleftrightarrow
+    (p\Rightarrow q)\land(q\Rightarrow p).
+\]
+
+\subsection{蕴含、逆否与反证}
+
+最重要的逻辑等价式之一是
+\[
+    \boxed{
+    p\Rightarrow q
+    \Longleftrightarrow
+    \neg q\Rightarrow\neg p.
+    }
+\]
+右侧称为原蕴含的逆否命题。因此要证明$p\Rightarrow q$，也可以证明$\neg q\Rightarrow\neg p$。
+
+若假设$\neg p$后推出矛盾，则可以否定这个假设：
+\[
+    \neg p\Rightarrow\bot
+    \quad\Longrightarrow\quad
+    p,
+\]
+其中$\bot$表示矛盾命题。反证法不是独立于逻辑的神秘技巧，而是蕴含、否定和矛盾规则共同产生的证明形式。
+
+\begin{remark}[证明中的定义、条件与结论]
+数学证明常常具有“定义$\longrightarrow$条件$\longrightarrow$结论”的结构。阅读一条形式化陈述时，应先确定每个变量的取值范围，再判断量词、合取、蕴含和等价的作用范围。一个符号写在公式中，并不自动说明它是自由变量还是已经被量词约束的变量。
+\end{remark}
+
+\subsection{逻辑语言的极简性}
+
+例如定义非合取（NAND）
+\[
+    p\mathbin{\uparrow}q:=\neg(p\land q).
+\]
+它本身就可以生成否定和合取：
+\[
+    \neg p=p\mathbin{\uparrow}p,
+\]
+\[
+    p\land q
+    =\neg(p\mathbin{\uparrow}q)
+    =(p\mathbin{\uparrow}q)\mathbin{\uparrow}
+    (p\mathbin{\uparrow}q).
+\]
+进一步可以构造析取、蕴含和等价。因此
+\[
+    \boxed{\text{只使用NAND，也可以表达全部命题逻辑联结词。}}
+\]
+这显示出形式语言的一种美：丰富的表达能力可以由极少的基本操作生成。
+
+%——————————————————————————————————%
+
+\section{谓词逻辑}
+
+\subsection{谓词与变量}
+
+谓词是依赖于一个或多个变量、并取真或假的表达式。一元谓词记为
+\[
+    P(x).
+\]
+例如
+\[
+    P(x):\quad x\text{是偶数}.
+\]
+在没有给定$x$时，$P(x)$不是完整命题；取$x=4$后，$P(4)$才成为真或假的命题。二元谓词可以写为
+\[
+    Q(x,y):\quad x<y.
+\]
+
+逻辑联结词可以逐点作用于谓词。例如
+\[
+    P(x):x>0,
+    \qquad
+    Q(x):x\neq1
+\]
+给出复合谓词
+\[
+    P(x)\land Q(x),
+\]
+表示$x>0$且$x\neq1$。
+
+\subsection{全称量词、存在量词与唯一存在}
+
+\[
+    \forall x\,P(x)
+\]
+读作“对所有$x$，$P(x)$成立”，而
+\[
+    \exists x\,P(x)
+\]
+读作“存在至少一个$x$，使$P(x)$成立”。唯一存在记作
+\[
+    \exists!x\,P(x),
+\]
+其逻辑展开为
+\[
+    \exists x\left(P(x)\land
+    \forall y\bigl(P(y)\Rightarrow y=x\bigr)\right).
+\]
+
+例如欧氏空间中开集的局部描述是
+\[
+    \forall p\in U,quad
+    \exists r_p>0,quad
+    B_{r_p}(p)\subseteq U.
+\]
+它表示：对$U$中的每个点$p$，都可以找到一个半径$r_p$，而且这个半径允许依赖于$p$。
+
+这不同于
+\[
+    \exists r>0,quad
+    \forall p\in U,quad
+    B_r(p)\subseteq U.
+\]
+后一个命题要求所有点共享同一个半径，通常强得多，也通常不成立。
+
+\subsection{量词否定}
+
+量词否定的基本规则为
+\[
+    \boxed{
+    \neg(\forall x\,P(x))
+    \Longleftrightarrow
+    \exists x\,\neg P(x),
+    }
+\]
+以及
+\[
+    \boxed{
+    \neg(\exists x\,P(x))
+    \Longleftrightarrow
+    \forall x\,\neg P(x).
+    }
+\]
+例如
+\[
+    \neg(\forall p\in U,\ p\in A)
+    \Longleftrightarrow
+    \exists p\in U,\ p\notin A.
+\]
+
+\subsection{自由变量、约束变量与作用域}
+
+考虑谓词
+\[
+    Q(y):=\forall x\,P(x,y).
+\]
+其中$x$被$\forall x$绑定，是约束变量；$y$没有被量词绑定，是自由变量。因此$Q(y)$仍然是一个关于$y$的谓词。表达式
+\[
+    \forall y\,\forall x\,P(x,y)
+\]
+则不含自由变量，是一个完整命题。
+
+写作
+\[
+    \forall p\in U
+\]
+是
+\[
+    \forall p\,(p\in U\Rightarrow\cdots)
+\]
+的简写；写作
+\[
+    \exists p\in U
+\]
+是
+\[
+    \exists p\,(p\in U\land\cdots)
+\]
+的简写。量词顺序一般不能交换：
+\[
+    \forall x\,\exists y\,P(x,y)
+\]
+与
+\[
+    \exists y\,\forall x\,P(x,y)
+\]
+是不同的命题。前者允许$y$随$x$变化，后者要求存在一个统一的$y$。
+
+例如
+\[
+    \forall x\in\R,\quad
+    \exists y\in\R,\quad y>x
+\]
+为真；但
+\[
+    \exists y\in\R,\quad
+    \forall x\in\R,\quad y>x
+\]
+为假。
+
+%——————————————————————————————————%
+
+\section{公理系统与证明}
+
+\subsection{形式理论的组成}
+
+一个公理系统或形式理论$T$由三部分组成：
+\begin{enumerate}
+    \item 一套形式语言，包括符号、变量和运算符号；
+    \item 一组公理；
+    \item 一组从公式推出新公式的逻辑规则。
+\end{enumerate}
+
+公理可以是有限多个，也可以是无限多个；有些理论用一条公理模式代表无穷多个具体公理实例。因此不能把“公理系统”一般性地定义为有限公理列表。
+
+在形式理论中，需要区分两个层次：
+\[
+    T\vdash P
+    \qquad\text{与}\qquad
+    T\models P.
+\]
+前者表示$P$在理论$T$中有形式证明，是语法层面的陈述；后者表示$P$在$T$的每个模型中都为真，是语义层面的陈述。本章主要讨论前者。
+
+\subsection{形式证明与modus ponens}
+
+给定形式理论$T$，命题$P$的一个证明是一列有限公式
+\[
+    q_1,q_2,\ldots,q_m=P,
+\]
+其中每一项都必须有明确来源：
+\begin{enumerate}
+    \item $q_i$是$T$的公理；
+    \item $q_i$是逻辑公理或逻辑恒真式的实例；
+    \item $q_i$由前面的公式根据某条推理规则推出。
+\end{enumerate}
+
+最基本的推理规则是modus ponens：
+\[
+    \frac{q_m,\qquad q_m\Rightarrow q_i}{q_i}.
+\]
+若存在这样的有限推导，记为
+\[
+    T\vdash P,
+\]
+读作“在理论$T$中，$P$可证”。
+
+一个重言式是在任何真值赋值下都为真的公式，例如
+\[
+    p\lor\neg p,
+    \qquad
+    p\Rightarrow p.
+\]
+逻辑恒真式属于逻辑骨架，不是某个具体数学对象的实质性假设。例如结合律
+\[
+    (gh)k=g(hk)
+\]
+不是重言式；它是群运算需要满足的额外结构条件。
+
+\subsection{证明、一致性与爆炸原理}
+
+能够定义什么是证明，并不等于能够找到一个证明。给定一份候选证明，检查每一步是否为公理、逻辑规则实例或合法推论，通常可以机械完成；但对任意命题，是否存在证明以及如何发现证明，可能需要创造性的数学思想。
+
+理论$T$称为一致（consistent），若不存在命题$P$使得
+\[
+    T\vdash P
+    \qquad\text{且}\qquad
+    T\vdash\neg P.
+\]
+因此，一致性不是“存在一个无法证明的命题”的定义；后者属于不完备性的方向。
+
+若理论同时证明$S$和$\neg S$，则对任意命题$Q$，逻辑上都有
+\[
+    S\Rightarrow(\neg S\Rightarrow Q).
+\]
+依次使用modus ponens，便可从矛盾推出$Q$。这称为爆炸原理：
+\[
+    \boxed{\text{从矛盾可以推出任意命题。}}
+\]
+一个不一致的理论因此失去区分命题的能力。
+
+%——————————————————————————————————%
+
+\section{Gödel边界：形式系统不能穷尽真理}
+
+\subsection{第一不完备性定理}
+
+一个理论$T$称为完备，如果对每个形式语言中的命题$P$，至少有一个成立：
+\[
+    T\vdash P
+    \qquad\text{或}\qquad
+    T\vdash\neg P.
+\]
+
+以现代加强形式表述Gödel第一不完备性定理：
+
+\begin{theorem}[Gödel第一不完备性定理的形式]
+设$T$是一致、可有效公理化，并且足以表达自然数基本算术的形式理论。则$T$是不完备的：存在算术命题$G$，使
+\[
+    T\nvdash G,
+    \qquad
+    T\nvdash\neg G.
+\]
+\end{theorem}
+
+这里“可有效公理化”不是说公理必须有限，而是说存在机械方法可以枚举公理，或判定一个公式是否为公理实例；“足以表达自然数基本算术”表示理论能够谈论自然数、加法、乘法以及有限证明编码等基本对象。
+
+Gödel原始版本在否定方向使用了比一致性更强的条件；现代的Rosser加强形式可以在一致性条件下得到上述不可判定结论。这里只保留定理的思想，不展开形式证明。
+
+\subsection{Gödel编码的思想}
+
+Gödel编码的关键是把元数学对象转译为自然数：
+\[
+\begin{array}{c}
+\text{符号串}\
+\downarrow\\
+\text{公式}\
+\downarrow\\
+\text{有限证明}\
+\downarrow\\
+\text{自然数编码}
+\end{array}
+\]
+于是，“$n$是某个公式的合法证明编码”可以被翻译成关于自然数的算术性质。足够强的理论就可以在内部间接谈论自己的公式和证明。
+
+在这种编码基础上，可以构造一个具有如下精神的命题：
+\[
+    G:\quad
+    \text{“命题 }G\text{在理论 }T\text{中不可证明。”}
+\]
+严格构造并不是简单地把这句话直接写进系统，而是利用编码和对角化得到一个形式公式。若$T$一致，$G$和$\neg G$都不能在$T$中被证明。
+
+\subsection{第二不完备性定理}
+
+在满足相应条件的足够强形式理论中，若$T$一致，则$T$不能在自身内部证明自己的无矛盾性命题$\operatorname{Con}(T)$：
+\[
+    T\text{一致}
+    \quad\Longrightarrow\quad
+    T\nvdash\operatorname{Con}(T).
+\]
+这不是说数学家不能在更强的理论中研究$T$的一致性，而是说足够强的$T$不能用自身内部的手段为自身提供完整的最终保证。
+
+Gödel定理并不是对数学严密性的否定。它揭示的是：形式化、机械化、足够强与完全封闭不能同时获得。
+
+%——————————————————————————————————%
+
+\section{基本的\texorpdfstring{$\in$}{in}关系}
+
+\subsection{集合论的原始语言}
+
+公理化集合论不首先解释“集合究竟是什么”，而把
+\[
+    x\in y
+\]
+作为基本关系，读作“$x$是$y$的元素”。在ZF/ZFC的一阶语言中，变量默认都表示集合；因此不需要额外写一条“$x,y$都是集合时，$x\in y$才有意义”的公理。
+
+集合论的策略是：不把集合的本体还原为更基础的对象，而是规定集合必须满足哪些公理。这与公理化几何不试图先定义“点的本体”、而是规定点和线满足哪些关系，有相似的精神。
+
+\subsection{由元素关系定义集合关系}
+
+集合相等和子集关系可以由$\in$与逻辑定义：
+\[
+    x=y
+    \quad\Longleftrightarrow\quad
+    \forall a\,(a\in x\Leftrightarrow a\in y),
+\]
+\[
+    x\subseteq y
+    \quad\Longleftrightarrow\quad
+    \forall a\,(a\in x\Rightarrow a\in y).
+\]
+真子集定义为
+\[
+    x\subsetneq y
+    \quad\Longleftrightarrow\quad
+    x\subseteq y\land x\neq y.
+\]
+后续出现的集合运算，例如
+\[
+    A\cup B,
+    \qquad
+    A\cap B,
+    \qquad
+    A\setminus B,
+\]
+都可以归结为对元素关系的逻辑描述。
+
+%——————————————————————————————————%
+
+\section{Russell悖论：为什么不能任意造集合}
+
+\subsection{无限制概括的矛盾}
+
+假设每个性质$P(x)$都可以直接产生一个集合：
+\[
+    \{x:P(x)\}.
+\]
+考虑性质
+\[
+    P(x):\quad x\notin x,
+\]
+于是可以形成
+\[
+    R=\{x:x\notin x\}.
+\]
+
+现在询问$R\in R$是否成立。若$R\in R$，按照$R$的定义，应有$R\notin R$；若$R\notin R$，按照定义，又应有$R\in R$。因此
+\[
+    R\in R
+    \quad\Longleftrightarrow\quad
+    R\notin R,
+\]
+产生矛盾。
+
+\subsection{限制概括与类}
+
+Russell悖论说明，问题不在于逻辑本身，而在于“任意性质都能定义一个集合”太强。现代集合论允许的筛选形式是：给定一个已有集合$A$，再从它内部选出满足性质$P$的元素：
+\[
+    \{x\in A:P(x)\}.
+\]
+这称为分离（separation）思想。
+
+例如
+\[
+    \{n\in\N:n\text{为偶数}\}
+\]
+是合法集合，因为它从已有集合$\N$中筛选，而不是试图收集整个宇宙中所有偶数对象。
+
+在集合论中可以用“类”非正式地描述某些过于庞大的总体，例如
+\[
+    \{x:x\notin x\}
+\]
+可以作为类的描述，但不能把它当作ZF/ZFC中的集合。区分集合与类，正是对Russell悖论的结构性回应。
+
+%——————————————————————————————————%
+
+\section{ZF与ZFC公理概览}
+
+\subsection{公理系统的组成}
+
+ZF是Zermelo--Fraenkel集合论的缩写，ZFC则是在ZF上加入选择公理（Axiom of Choice）。常见公理可以按其构造作用整理如下：
+\[
+    \mathrm{ZFC}=\mathrm{ZF}+\mathrm{AC}.
+\]
+
+\begin{center}
+\begin{tabular}{c|l}
+    \toprule
+    记号 & 作用\\
+    \midrule
+    E & 外延公理：集合由其元素唯一决定\\
+    $\varnothing$ & 空集公理：无元素的集合存在\\
+    P & 配对公理：构造$\{x,y\}$\\
+    U & 并集公理：构造$\bigcup A$\\
+    $\mathcal P$ & 幂集公理：构造全部子集组成的集合\\
+    I & 无穷公理：保证自然数式的无穷过程存在\\
+    S & 分离公理模式：从已有集合按性质筛选\\
+    R & 替换公理模式：收集函数规则得到的像\\
+    F & 基础公理：排除成员关系的循环和无限下降链\\
+    C & 选择公理：从一族非空集合中同时选择\\
+    \bottomrule
+\end{tabular}
+\end{center}
+
+不同教材对公理的排列和命名略有差异。例如空集公理可以由其他公理组合得到，或者被单独列出；分离和替换是公理模式，代表带有任意公式参数的一族公理。这里采用有利于理解构造作用的列法。
+
+\subsection{外延公理}
+
+外延公理的形式是
+\[
+    \forall x\,\forall y\,
+    \left[
+    \forall z\,(z\in x\Leftrightarrow z\in y)
+    \Rightarrow x=y
+    \right].
+\]
+它表达：两个集合若包含完全相同的元素，则它们是同一个集合。集合不记录元素的排列顺序，也不记录同一元素重复出现的次数：
+\[
+    \{a,b\}=\{b,a\},
+    \qquad
+    \{a,a,b\}=\{a,b\}.
+\]
+
+\subsection{空集公理}
+
+空集公理保证存在一个没有元素的集合：
+\[
+    \exists x\,\forall y\,(y\notin x).
+\]
+由外延公理，这样的集合唯一，记为$\varnothing$：
+\[
+    \forall y,\quad y\notin\varnothing.
+\]
+
+\subsection{配对公理}
+
+对任意集合$x,y$，存在集合$z$，使
+\[
+    \forall u,\quad
+    u\in z
+    \Longleftrightarrow
+    (u=x\lor u=y).
+\]
+记作
+\[
+    z=\{x,y\}.
+\]
+单元素集是特殊情况：
+\[
+    \{x\}:=\{x,x\}.
+\]
+这里的花括号表示无序集合，因此一般有
+\[
+    \{x,y\}=\{y,x\},
+\]
+但它与有序对$(x,y)$不是同一种对象。
+
+\subsection{并集公理}
+
+对每个集合$A$，存在集合$\bigcup A$，满足
+\[
+    z\in\bigcup A
+    \quad\Longleftrightarrow\quad
+    \exists y\in A,\ z\in y.
+\]
+它把$A$的元素中的元素收集到一起。例如
+\[
+    A=\bigl\{\{a,b\},\{b,c\}\bigr\}
+\]
+给出
+\[
+    \bigcup A=\{a,b,c\}.
+\]
+
+\subsection{分离与替换公理模式}
+
+分离公理模式说：给定已有集合$A$和性质$\varphi(x)$，存在子集
+\[
+    B=\{x\in A:\varphi(x)\}.
+\]
+形式上：
+\[
+    \forall A\,\exists B\,\forall x,
+    \left(x\in B\Leftrightarrow x\in A\land\varphi(x)\right).
+\]
+这正是对无限制概括的限制。
+
+替换公理模式处理函数式的收集。若一个公式$\varphi(x,y)$对每个$x\in A$唯一确定一个$y$：
+\[
+    \forall x\in A,\quad \exists!y\,\varphi(x,y),
+\]
+则存在集合$B$收集所有对应的值：
+\[
+    \forall y,quad
+    y\in B
+    \Longleftrightarrow
+    \exists x\in A,\ \varphi(x,y).
+\]
+因此：
+\begin{itemize}
+    \item 分离是从已有集合中筛选；
+    \item 替换是把已有集合的元素按一个函数式规则变换后收集。
+\end{itemize}
+
+\subsection{幂集公理}
+
+幂集公理保证对每个集合$A$，所有子集组成的集合存在：
+\[
+    \mathcal P(A)=\{B:B\subseteq A\}.
+\]
+形式上：
+\[
+    \forall A\,\exists P\,\forall B,
+    \left(B\in P\Leftrightarrow B\subseteq A\right).
+\]
+例如若$A=\{a,b\}$，则
+\[
+    \mathcal P(A)
+    =\{\varnothing,\{a\},\{b\},\{a,b\}\}.
+\]
+幂集把“集合的元素”提升为“集合的全部子集”，是后续关系、拓扑和函数空间的基础构造之一。
+
+\subsection{无穷公理}
+
+定义后继操作
+\[
+    S(x):=x\cup\{x\}.
+\]
+无穷公理保证存在一个归纳集合$I$，满足
+\[
+    \varnothing\in I,
+    \qquad
+    x\in I\Rightarrow S(x)\in I.
+\]
+它保证从空集出发反复取后继的过程不会在有限步骤后停止。
+
+\subsection{基础公理与成员关系的层级}
+
+基础公理的标准形式为：
+\[
+    \forall X\,
+    \left(
+    X\neq\varnothing
+    \Rightarrow
+    \exists y\in X,\ y\cap X=\varnothing
+    \right).
+\]
+它排除成员关系中的循环和无限下降链，例如
+\[
+    x\in x,
+    \qquad
+    x_0\ni x_1\ni x_2\ni\cdots.
+\]
+因此它表达了集合宇宙的层级性：集合由其他对象组成，但不能通过成员关系无限向下回溯。
+
+\subsection{选择公理}
+
+设$X$是一族非空集合：
+\[
+    \forall A\in X,\quad A\neq\varnothing.
+\]
+选择公理断言存在一个选择函数
+\[
+    f:X\to\bigcup X,
+\]
+满足
+\[
+    \forall A\in X,\quad f(A)\in A.
+\]
+即可以从每个非空集合中同时选出一个元素。
+
+在需要从每个等价类中同时选取代表元时，通常会调用选择公理；但商集本身、典范投影以及通过良定义性构造商集上的映射，并不需要预先选取代表元。选择公理的独立性等内容超出本章范围。
+
+%——————————————————————————————————%
+
+\section{集合、序对与映射}
+
+\subsection{序对与笛卡尔积}
+
+集合论中的无序对不记录顺序。为了构造有序对，可以采用Kuratowski编码：
+\[
+    (a,b):=\bigl\{\{a\},\{a,b\}\bigr\}.
+\]
+这个编码满足
+\[
+    (a,b)=(a',b')
+    \quad\Longleftrightarrow\quad
+    a=a'\text{且}b=b'.
+\]
+于是对集合$A,B$定义笛卡尔积：
+\[
+    A\times B
+    :=\{(a,b):a\in A,\ b\in B\}.
+\]
+笛卡尔积是关系和映射的共同底座。
+
+\subsection{关系与映射}
+
+一个从$A$到$B$的二元关系是$A\times B$的子集。映射$f:A\to B$是满足以下条件的关系：
+\[
+    \forall a\in A,\quad
+    \exists!b\in B,\quad (a,b)\in f.
+\]
+通常把唯一的$b$记为$f(a)$。
+
+这里要区分：
+\[
+    A=\operatorname{dom}(f),
+    \qquad
+    B=\operatorname{codom}(f),
+    \qquad
+    f(A)=\operatorname{im}(f)\subseteq B.
+\]
+陪域$B$不一定等于像$f(A)$。例如
+\[
+    f:\R\to\R,qquad f(x)=x^2
+\]
+的像是
+\[
+    f(\R)=[0,\infty)\subsetneq\R.
+\]
+
+若$U\subseteq A$，限制映射为
+\[
+    f|_U:U\to B,qquad u\mapsto f(u).
+\]
+若$f(U)\subseteq V\subseteq B$，也可以把陪域缩小为$V$。
+
+\subsection{像、原像与复合}
+
+对$U\subseteq A$，定义像
+\[
+    f(U):=\{f(u):u\in U\}\subseteq B.
+\]
+对$V\subseteq B$，定义原像
+\[
+    f^{-1}(V):=\{a\in A:f(a)\in V\}\subseteq A.
+\]
+这里$f^{-1}(V)$表示原像，不要求$f$可逆。
+
+若
+\[
+    f:A\to B,qquad g:B\to C,
+\]
+则复合映射为
+\[
+    g\circ f:A\to C,
+    \qquad
+    (g\circ f)(a)=g(f(a)).
+\]
+复合之所以有意义，是因为$f(a)\in B$，而$g$的定义域正是$B$。
+
+\subsection{单射、满射与双射}
+
+映射$f:A\to B$是单射，如果
+\[
+    f(a_1)=f(a_2)\Rightarrow a_1=a_2.
+\]
+它是满射，如果
+\[
+    f(A)=B,
+\]
+即
+\[
+    \forall b\in B,\quad\exists a\in A,\quad f(a)=b.
+\]
+同时单射和满射的映射称为双射，记为
+\[
+    f:A\xrightarrow{\cong}B.
+\]
+集合层次上，双射表达$A$和$B$等势；如果空间还带有拓扑、线性或光滑结构，则还需要相应结构相容的同胚、线性同构或微分同胚。
+
+当且仅当$f$是双射时，存在唯一逆映射
+\[
+    f^{-1}:B\to A,
+\]
+满足
+\[
+    f^{-1}\circ f=\operatorname{id}_A,
+    \qquad
+    f\circ f^{-1}=\operatorname{id}_B.
+\]
+
+%——————————————————————————————————%
+
+\section{等价关系与商集}
+
+\subsection{等价关系}
+
+集合$M$上的关系$\sim\subseteq M\times M$称为等价关系，如果满足：
+\begin{enumerate}
+    \item 自反性：$\forall x\in M,\ x\sim x$；
+    \item 对称性：$x\sim y\Rightarrow y\sim x$；
+    \item 传递性：$(x\sim y\land y\sim z)\Rightarrow x\sim z$。
+\end{enumerate}
+
+直觉上，等价关系规定哪些原本不同的元素，在当前问题中应被视为“同一个对象”。给定$x\in M$，定义等价类
+\[
+    [x]_{\sim}:=\{y\in M:y\sim x\}.
+\]
+必须区分：$x\in M$是一个元素，而$[x]_{\sim}\subseteq M$是一个子集。
+
+等价类满足
+\[
+    x\in[x]_{\sim},
+\]
+以及
+\[
+    [x]_{\sim}=[y]_{\sim}
+    \quad\Longleftrightarrow\quad
+    x\sim y.
+\]
+若两个等价类不同，则它们不相交：
+\[
+    [x]_{\sim}\neq[y]_{\sim}
+    \quad\Longrightarrow\quad
+    [x]_{\sim}\cap[y]_{\sim}=\varnothing.
+\]
+
+\subsection{商集与典范投影}
+
+等价关系下的商集定义为
+\[
+    M/{\sim}:=\{[x]_{\sim}:x\in M\}.
+\]
+商集的元素不是原来的$x\in M$，而是整个等价类$[x]_{\sim}$。自然映射称为典范投影：
+\[
+    \pi:M\to M/{\sim},
+    \qquad
+    \pi(x)=[x]_{\sim}.
+\]
+它一定是满射，但通常不是单射：若$x\sim y$，则
+\[
+    \pi(x)=\pi(y).
+\]
+
+商集把原集合划分为互不相交的等价类：
+\[
+    M=\bigcup_{C\in M/{\sim}}C.
+\]
+这个构造的关键不是从每个等价类中任意挑一个代表元，而是把等价类本身当作新的对象。
+
+\subsection{商集上的映射与良定义性}
+
+若希望定义
+\[
+    F:M/{\sim}\to N
+\]
+并通过代表元写成
+\[
+    F([x]_{\sim})=f(x),
+\]
+则必须检查
+\[
+    x\sim y\Longrightarrow f(x)=f(y).
+\]
+否则同一个等价类因为选择不同代表元会得到不同值，$F$就不是一个函数。这称为良定义性。
+
+更一般地，若
+\[
+    F:M/{\sim}\to N/{\approx},
+    \qquad
+    F([x]_{\sim})=[f(x)]_{\approx},
+\]
+则需要
+\[
+    x\sim y\Longrightarrow f(x)\approx f(y).
+\]
+
+\subsection{模$n$整数的例子}
+
+在$\Z$上定义
+\[
+    a\sim b
+    \quad\Longleftrightarrow\quad
+    a-b\in n\Z,
+\]
+其中$n\ge1$。这就是同余关系
+\[
+    a\equiv b\pmod n.
+\]
+商集记为
+\[
+    \Z/n\Z,
+\]
+其元素为
+\[
+    [a]_n=a+n\Z.
+\]
+
+在商类上定义加法：
+\[
+    [a]_n+[b]_n:=[a+b]_n.
+\]
+若$a\equiv a'\pmod n$且$b\equiv b'\pmod n$，则
+\[
+    (a+b)-(a'+b')=(a-a')+(b-b')\in n\Z,
+\]
+所以
+\[
+    [a+b]_n=[a'+b']_n.
+\]
+因此加法与代表元选择无关，是良定义的。
+
+%——————————————————————————————————%
+
+\section{由集合构造自然数}
+
+\subsection{后继与归纳集合}
+
+定义后继操作
+\[
+    S(x):=x\cup\{x\}.
+\]
+无穷公理保证至少存在一个归纳集合$I_0$，满足
+\[
+    \varnothing\in I_0,
+    \qquad
+    x\in I_0\Rightarrow S(x)\in I_0.
+\]
+不能直接把“所有归纳集合”写成一个无界集合。正确做法是先用幂集公理得到$\mathcal P(I_0)$，再用分离公理筛选其中的归纳子集：
+\[
+    \mathcal I
+    :=\left\{
+    J\in\mathcal P(I_0):
+    \varnothing\in J\text{且}
+    \forall x\in J,\ S(x)\in J
+    \right\}.
+\]
+此时$\mathcal I$已经是一个集合，并且$I_0\in\mathcal I$。定义最小归纳集合为
+\[
+    \N:=\bigcap\mathcal I.
+\]
+采用von Neumann编码，定义
+\[
+    0:=\varnothing,
+    \qquad
+    1:=S(0)=\{0\},
+\]
+\[
+    2:=S(1)=\{0,1\},
+    \qquad
+    3:=S(2)=\{0,1,2\}.
+\]
+一般地，
+\[
+    n=\{0,1,\ldots,n-1\}.
+\]
+于是自然数不是预先放入集合论的外部对象，而是由空集、配对、并集和无穷公理逐步构造出来的集合。
+
+\subsection{数学归纳法}
+
+由$\N$的最小性得到归纳原理。若$A\subseteq\N$满足
+\[
+    0\in A,
+    \qquad
+    n\in A\Rightarrow S(n)\in A,
+\]
+则
+\[
+    A=\N.
+\]
+这就是数学归纳法。它不是对任意集合自动成立的经验规则，而是自然数构造的结构性结果。
+
+\subsection{前驱与递归定义}
+
+正自然数集合记为
+\[
+    \N^+:=\N\setminus\{0\}.
+\]
+对每个$n\in\N^+$，存在唯一$m\in\N$满足
+\[
+    n=S(m).
+\]
+因此可以定义前驱映射
+\[
+    P:\N^+\to\N,
+    \qquad
+    P(S(m))=m.
+\]
+它不能定义在整个$\N$上，因为$0$没有自然数前驱。
+
+自然数上的递归定义以加法为例：
+\[
+    m+0=m,
+\]
+\[
+    m+S(n)=S(m+n).
+\]
+乘法可以继续定义为
+\[
+    m\cdot0=0,
+\]
+\[
+    m\cdot S(n)=m\cdot n+m.
+\]
+交换律、结合律和分配律不是定义本身，而是可以通过归纳法证明的定理。
+
+%——————————————————————————————————%
+
+\section{由自然数构造整数}
+
+自然数中不能总进行减法，例如$2-3$不是自然数。为表示形式差，用有序对$(m,n)\in\N\times\N$表示“$m-n$”。但
+\[
+    (3,1),\qquad(4,2),\qquad(100,98)
+\]
+都应表示同一个整数$2$。
+
+在$\N\times\N$上定义关系
+\[
+    (m,n)\sim(p,q)
+    \quad\Longleftrightarrow\quad
+    m+q=p+n.
+\]
+它表达形式差相等：
+\[
+    m-n=p-q.
+\]
+可以验证$\sim$是等价关系，于是定义
+\[
+    \Z:=(\N\times\N)/\sim.
+\]
+整数的元素是等价类$[(m,n)]$，而不是某个特定的有序对。
+
+自然数嵌入整数为
+\[
+    n\longmapsto[(n,0)],
+\]
+负数可写为
+\[
+    -n=[(0,n)].
+\]
+加法定义为
+\[
+    [(m,n)]+[(p,q)]
+    :=[(m+p,n+q)].
+\]
+这个定义必须经过良定义性验证：改变两个等价类的代表元后，右侧仍属于同一个等价类。整数的乘法和序结构也可以用同样的等价类方法构造。
+
+%——————————————————————————————————%
+
+\section{由整数构造有理数}
+
+有理数用分数表示，但同一个分数有许多写法：
+\[
+    \frac12=\frac24=\frac{-3}{-6}.
+\]
+因此取
+\[
+    \Z^*:=\Z\setminus\{0\},
+\]
+在$\Z\times\Z^*$上定义
+\[
+    (x,y)\sim(u,v)
+    \quad\Longleftrightarrow\quad
+    xv=uy.
+\]
+这表达$x/y=u/v$。定义
+\[
+    \Q:=(\Z\times\Z^*)/\sim.
+\]
+有理数的元素是等价类$[(x,y)]$，通常记作$\frac{x}{y}$。
+
+加法和乘法分别定义为
+\[
+    [(x,y)]+[(u,v)]
+    :=[(xv+uy,yv)],
+\]
+\[
+    [(x,y)]\cdot[(u,v)]
+    :=[(xu,yv)].
+\]
+仍需验证这些运算对代表元选择不敏感。这个步骤不是形式上的附注，而是商集上定义运算的必要条件。
+
+%——————————————————————————————————%
+
+\section{实数的构造思想}
+
+从$\Q$到$\R$的严格构造需要补入有理数中缺失的极限。这里给出两种经典方案，作为构造纲要。
+
+\subsection{Dedekind分割}
+
+一个Dedekind分割可以直观地看成把$\Q$分成两部分$(A,B)$，满足：
+\begin{enumerate}
+    \item $A$和$B$都非空；
+    \item $A\cup B=\Q$且$A\cap B=\varnothing$；
+    \item 若$a\in A$且$b<a$，则$b\in A$；
+    \item $A$没有最大元素。
+\end{enumerate}
+
+可以把分割等同于其下部$A$。所有Dedekind分割组成的集合，就是一种$\R$的构造。直觉上，$A$描述所有严格小于某个“实数位置”的有理数。
+
+\subsection{Cauchy序列等价类}
+
+另一种构造从有理数Cauchy序列出发。令$C$为所有有理Cauchy序列的集合，在其中定义
+\[
+    (a_n)\sim(b_n)
+    \quad\Longleftrightarrow\quad
+    a_n-b_n\longrightarrow0.
+\]
+等价类表示具有同一个极限位置的序列，定义
+\[
+    \R:=C/{\sim}.
+\]
+加法和乘法由序列逐项运算诱导：
+\[
+    [(a_n)]+[(b_n)]=[(a_n+b_n)],
+\]
+\[
+    [(a_n)]\cdot[(b_n)]=[(a_nb_n)].
+\]
+需要证明这些运算良定义，并证明由此得到的有序域是完备的。完备性正是有理数所缺少、而实数拥有的关键性质。
+
+\begin{remark}[构造纲要与完整构造]
+Dedekind分割和Cauchy序列等价类都可以在ZF背景中严格完成，但完整证明需要处理序、运算、完备性以及与原有理数系统的嵌入。本节只展示构造机制：先扩大对象，再用等价关系识别应视为同一的表示。这里不把几页笔记中的纲要冒充成全部严格证明。
+\end{remark}
+
+%——————————————————————————————————%
+
+\section{本章总结：公理化建造的图景}
+
+本章的建造链可以写成
+\[
+\begin{gathered}
+    \text{逻辑符号}\longrightarrow\text{命题}
+    \longrightarrow\text{量词}\longrightarrow\text{证明}
+    \longrightarrow\text{公理系统}\\[-2pt]
+    \downarrow\\[-2pt]
+    \in\text{关系}\\[-2pt]
+    \downarrow\\[-2pt]
+    \mathrm{ZF}/\mathrm{ZFC}\text{公理}\\[-2pt]
+    \downarrow\\[-2pt]
+    \varnothing,\ \{x,y\},\ \bigcup A,\ \mathcal P(A),\ \N\\[-2pt]
+    \downarrow\\[-2pt]
+    \Z,\ \Q,\ \R,\ \text{函数、关系与结构}.
+\end{gathered}
+\]
+
+最值得保留的理解有：
+\begin{enumerate}
+    \item 形式理论由语言、公理和推理规则组成；证明是有限的、可检查的公式序列。
+    \item 量词顺序决定命题强弱，尤其要区分$\forall x\exists y$和$\exists y\forall x$。
+    \item 集合论以$\in$为基本关系，用外延公理规定集合相等。
+    \item Russell悖论说明不能无边界地按任意性质构造集合；分离公理只允许从已有集合中筛选。
+    \item ZF/ZFC通过空集、配对、并集、幂集、无穷、分离、替换、基础和选择等公理组织集合的构造。
+    \item 自然数可以用后继递归构造，整数和有理数可以用等价类商构造，实数可以由Dedekind分割或Cauchy序列等价类构造。
+    \item Gödel不完备性定理提醒我们：一致、可有效公理化且足够强的形式系统不能在内部穷尽全部算术真理。
+\end{enumerate}
+
+因此，现代数学的基础图景既有建造性，也有边界性：
+\[
+    \boxed{\begin{gathered}
+    \text{少数符号和公理可以生成庞大的数学世界，}\\
+    \text{但没有一个足够强的一致形式系统能够从内部封闭地穷尽真理。}
+    \end{gathered}}
+\]
+下一章将把这些已经构造出的集合、映射和幂集语言用于讨论拓扑结构与连续性。

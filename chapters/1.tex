@@ -1,0 +1,1056 @@
+\chapter{集合、映射、等价关系与商集}
+
+%——————————————————————————————————%
+
+本章建立后续拓扑、流形和李群都会使用的对象语言。它的目的不是从集合论重新构造整个数学，而是让以下箭头能够被严格阅读：
+\[
+    \text{集合}
+    \longrightarrow
+    \text{映射}
+    \longrightarrow
+    \text{映射复合与逆}
+    \longrightarrow
+    \text{等价关系}
+    \longrightarrow
+    \text{等价类}
+    \longrightarrow
+    \text{商集}
+    \longrightarrow
+    \text{拓扑空间}.
+\]
+
+本书始终区分两层：
+
+\begin{itemize}
+    \item 集合层：只关心有哪些元素以及它们如何被映射；
+    \item 结构层：再为集合赋予拓扑、线性、光滑或群结构。
+\end{itemize}
+
+例如：
+\[
+    \R^d
+\]
+首先只是一个点的集合；赋予标准拓扑后得到
+\[
+    (\R^d,\mathcal O_{\mathrm{std}});
+\]
+赋予光滑图册后得到光滑流形；在集合$G$上同时指定乘法和求逆，并要求它们与光滑结构相容，才得到李群。
+
+%——————————————————————————————————%
+
+\section{集合是数学对象的载体}
+
+\subsection{基本记号}
+
+设$A,B$是集合，$x$是对象。基本关系和包含关系为：
+\[
+    x\in A,\qquad x\notin A,\qquad A\subseteq B.
+\]
+
+集合相等的判定是外延性：
+\[
+    A=B
+    \Longleftrightarrow
+    \forall x\ (x\in A\Longleftrightarrow x\in B).
+\]
+
+常用集合运算为：
+\[
+\begin{aligned}
+    A\cup B&=\{x:x\in A\lor x\in B\},\\
+    A\cap B&=\{x:x\in A\land x\in B\},\\
+    A\setminus B&=\{x:x\in A\land x\notin B\}.
+\end{aligned}
+\]
+若当前环境集合是$M$，则$A\subseteq M$的补集写为
+\[
+    A^c=M\setminus A.
+\]
+补集总是相对于一个已经指定的环境集合而言，不能脱离环境直接谈“所有对象的补集”。
+
+\begin{definition}[幂集]
+集合$M$的幂集定义为
+\[
+    \P(M)=\{A:A\subseteq M\}.
+\]
+幂集的元素是$M$的子集。第二章的拓扑就是某个幂集的子集：
+\[
+    \mathcal O\subseteq\P(M).
+\]
+\end{definition}
+
+\subsection{集合族与任意并交}
+
+一族集合可以记为
+\[
+    \{A_\alpha\}_{\alpha\in I},
+\]
+其中$I$是索引集。它们的并集和交集分别为：
+\[
+    \bigcup_{\alpha\in I}A_\alpha
+    =
+    \{x:\exists\alpha\in I,\ x\in A_\alpha\},
+\]
+以及
+\[
+    \bigcap_{\alpha\in I}A_\alpha
+    =
+    \{x:\forall\alpha\in I,\ x\in A_\alpha\}.
+\]
+
+“存在索引”和“对所有索引”分别对应并集和交集。这个对应会直接出现在拓扑公理中：
+\[
+    \text{任意并仍开，但只有有限交保证仍开。}
+\]
+
+\subsection{有限、无限与等势}
+
+\begin{definition}[有限集]
+集合$A$称为有限集，若$A=\varnothing$，或存在$n\in\N$和双射
+\[
+    f:A\to\{1,\ldots,n\}.
+\]
+\end{definition}
+
+\begin{definition}[无限集]
+集合$A$称为无限集，当且仅当它不是有限集。
+\end{definition}
+
+有时也会使用Dedekind无限的定义：
+\[
+    \exists B\subsetneq A,\qquad B\cong A.
+\]
+它表示$A$与自己的某个真子集等势。在通常采用选择公理的背景下，这一性质与通常的无限性等价；本书直接采用“不是有限集”作为无限集的定义，不在此处引入额外逻辑负担。
+
+\begin{definition}[等势]
+若存在双射
+\[
+    f:A\to B,
+\]
+则称$A$与$B$等势，记为
+\[
+    A\cong_{\mathrm{set}}B
+    \quad\text{或}\quad
+    |A|=|B|.
+\]
+\end{definition}
+
+“存在双射”与“具有相同基数”不是大致相同，而是等势关系的定义。这里的等势只保留集合元素之间的一一对应，不保留拓扑、线性或光滑结构。
+
+\subsection{集合与附加结构}
+
+同一个底层集合可以承载不同结构：
+\[
+\begin{array}{c|c}
+\text{底层集合}&\text{附加结构}\\
+\hline
+M&\text{无额外结构}\\
+(M,\mathcal O)&\text{拓扑}\\
+(M,\mathcal O,\mathcal A)&\text{可微结构}\\
+(G,m,\iota,\mathcal A)&\text{李群结构}
+\end{array}
+\]
+
+在李群的记号中：
+\[
+    m:G\times G\to G,\qquad
+    m(g,h)=gh
+\]
+是群乘法，
+\[
+    \iota:G\to G,\qquad
+    \iota(g)=g^{-1}
+\]
+是取逆映射。它们首先都是映射；“群”与“李群”的额外内容，是对这些映射增加了代数、拓扑和光滑条件。
+
+\subsection{与SLAM状态的联系}
+
+SLAM的状态可以先作为集合写成：
+\[
+    \mathcal X
+    =
+    \mathcal T_1\times\cdots\times\mathcal T_N\times\mathcal M,
+\]
+观测集合写成$\mathcal Z$。此时只知道状态有哪些可能值，还没有说明状态之间是否邻近、运动是否连续或增量如何计算。
+
+这些问题要等第二章和后续流形章节为$\mathcal X$赋予额外结构后再回答。
+
+%——————————————————————————————————%
+
+\section{笛卡尔积与有序对}
+
+\subsection{有序对}
+
+\begin{definition}[笛卡尔积]
+对集合$A,B$，定义
+\[
+    A\times B
+    =
+    \{(a,b):a\in A,\ b\in B\}.
+\]
+其中$(a,b)$是有序对。
+\end{definition}
+
+有序对的相等规则为：
+\[
+    (a,b)=(a',b')
+    \Longleftrightarrow
+    a=a'\ \text{且}\ b=b'.
+\]
+
+这与无序二元集合不同：
+\[
+    \{a,b\}=\{b,a\},
+\]
+但一般
+\[
+    (a,b)\neq(b,a).
+\]
+有序对保留“第一个位置”和“第二个位置”的信息。
+
+\subsection{有限积与元组}
+
+有限个集合的积写为：
+\[
+    A_1\times\cdots\times A_n
+    =
+    \{(a_1,\ldots,a_n):a_i\in A_i\}.
+\]
+当所有因子都是$\R$时：
+\[
+    \R^n
+    =
+    \underbrace{\R\times\cdots\times\R}_{n\text{ 次}}.
+\]
+
+积空间中的元素是元组，而不是一个无序集合。若
+\[
+    x=(x_1,\ldots,x_n)\in A_1\times\cdots\times A_n,
+\]
+则每个分量都有确定的类型：
+\[
+    x_i\in A_i.
+\]
+
+\subsection{后续结构中的积空间}
+
+大量数学对象都以积空间为定义域：
+\[
+\begin{aligned}
+    m&:G\times G\to G,\\
+    d&:M\times M\to\R,\\
+    H&:[0,1]\times[0,1]\to M,\\
+    h&:\mathcal X\to\mathcal Z.
+\end{aligned}
+\]
+
+第一行是群乘法，第二行是度量，第三行是同伦，第四行是观测模型。它们都依赖“有序输入”和“定义域/陪域类型匹配”。
+
+%——————————————————————————————————%
+
+\section{映射：对象之间的箭头}
+
+\subsection{映射的定义}
+
+\begin{definition}[映射]
+设$A,B$为集合。映射
+\[
+    f:A\to B
+\]
+表示：对每个$a\in A$，唯一指定一个$f(a)\in B$。
+\end{definition}
+
+严格写作：
+\[
+    \forall a\in A,\ \exists! b\in B,\qquad b=f(a).
+\]
+
+映射包含三个信息：
+\[
+    A=\operatorname{dom}(f),
+    \qquad
+    B=\operatorname{codom}(f),
+    \qquad
+    a\longmapsto f(a).
+\]
+
+\begin{center}
+\begin{tabular}{c|c}
+\text{符号}&\text{含义}\\
+\hline
+$A$&定义域（domain）\\
+$B$&陪域（codomain）\\
+$f$&映射规则\\
+$a\in A$&输入\\
+$f(a)\in B$&输出\\
+$f(A)\subseteq B$&像（image）
+\end{tabular}
+\end{center}
+
+陪域$B$和像$f(A)$不能混淆：
+\[
+    f(A)\subseteq B,
+\]
+但一般不等于$B$。
+
+例如：
+\[
+    f:\R\to\R,\qquad f(x)=x^2
+\]
+的像为
+\[
+    f(\R)=[0,\infty)\subsetneq\R.
+\]
+同一个规则如果把陪域改写为$[0,\infty)$，就得到另一个映射：
+\[
+    f:\R\to[0,\infty).
+\]
+规则相同不代表映射的陪域相同。
+
+\subsection{像与原像}
+
+\begin{definition}[像]
+若$f:A\to B$且$U\subseteq A$，则$U$的像定义为
+\[
+    f(U)
+    =
+    \{f(u):u\in U\}\subseteq B.
+\]
+特别地，
+\[
+    \operatorname{im}(f)=f(A).
+\]
+\end{definition}
+
+\begin{definition}[原像]
+若$f:A\to B$且$V\subseteq B$，则$V$的原像定义为
+\[
+    f^{-1}(V)
+    =
+    \{a\in A:f(a)\in V\}\subseteq A.
+\]
+\end{definition}
+
+\begin{remark}[原像不要求可逆]
+符号$f^{-1}(V)$表示原像，不表示$f$存在逆映射。例如
+\[
+    f:\R\to\R,\qquad f(x)=x^2
+\]
+不是双射，但
+\[
+    f^{-1}(\{1\})=\{-1,1\}
+\]
+完全有意义。
+\end{remark}
+
+原像保持集合运算：
+\[
+\begin{aligned}
+    f^{-1}(V_1\cup V_2)
+    &=
+    f^{-1}(V_1)\cup f^{-1}(V_2),\\
+    f^{-1}(V_1\cap V_2)
+    &=
+    f^{-1}(V_1)\cap f^{-1}(V_2),\\
+    f^{-1}(B\setminus V)
+    &=
+    A\setminus f^{-1}(V).
+\end{aligned}
+\]
+
+像对并集保持相等：
+\[
+    f(U_1\cup U_2)=f(U_1)\cup f(U_2),
+\]
+但对交集一般只有
+\[
+    f(U_1\cap U_2)\subseteq f(U_1)\cap f(U_2).
+\]
+若$f$不是单射，不同输入可能有相同像，从而使右侧包含更多元素。
+
+\subsection{限制映射}
+
+若$U\subseteq A$，则$f$在$U$上的限制为
+\[
+    f\vert_U:U\to B,\qquad
+    u\longmapsto f(u).
+\]
+若进一步有
+\[
+    f(U)\subseteq V\subseteq B,
+\]
+则可以把陪域也限制为$V$：
+\[
+    f\vert_U:U\to V.
+\]
+
+流形坐标图正是这种形式：
+\[
+    x:U\to x(U)\subseteq\R^d.
+\]
+这里$U$是流形上的局部区域，$x(U)$是坐标像；二者都必须被写清楚。
+
+%——————————————————————————————————%
+
+\section{单射、满射、双射与逆映射}
+
+\subsection{单射}
+
+\begin{definition}[单射]
+映射$f:A\to B$称为单射，若
+\[
+    f(a_1)=f(a_2)
+    \Longrightarrow
+    a_1=a_2.
+\]
+等价地：
+\[
+    a_1\neq a_2
+    \Longrightarrow
+    f(a_1)\neq f(a_2).
+\]
+\end{definition}
+
+单射表示不同输入不会被压到同一个输出。它不要求陪域中的每个点都被命中。
+
+\subsection{满射}
+
+\begin{definition}[满射]
+映射$f:A\to B$称为满射，若
+\[
+    f(A)=B.
+\]
+等价地：
+\[
+    \forall b\in B,\ \exists a\in A,\qquad f(a)=b.
+\]
+\end{definition}
+
+满射表示陪域中的每个元素都至少有一个原像。一个输出可以有多个原像，因此满射不一定单射。
+
+\subsection{双射}
+
+\begin{definition}[双射]
+若$f:A\to B$同时是单射和满射，则称$f$为双射，记为
+\[
+    f:A\xrightarrow{\cong}B.
+\]
+\end{definition}
+
+双射给出$A$与$B$之间的一一对应：
+\[
+    A\cong_{\mathrm{set}}B.
+\]
+在只有集合、没有额外结构的层次上，这可以称为集合论同构。但如果$A,B$还带有拓扑、线性或光滑结构，双射本身并不能保证它保留这些结构。
+
+例如，双射
+\[
+    f:M\to N
+\]
+不一定是同胚；若要成为同胚，还需要$f$和$f^{-1}$都连续。
+
+\subsection{逆映射}
+
+\begin{theorem}[逆映射判定]
+映射$f:A\to B$存在逆映射，当且仅当$f$是双射。
+\end{theorem}
+
+当$f$为双射时，唯一逆映射
+\[
+    f^{-1}:B\to A
+\]
+满足
+\[
+    f^{-1}\circ f=\operatorname{id}_A,
+    \qquad
+    f\circ f^{-1}=\operatorname{id}_B.
+\]
+
+对象方向必须与映射类型一致：
+\[
+    A\xrightarrow{f}B\xrightarrow{f^{-1}}A
+\]
+给出
+\[
+    f^{-1}\circ f=\operatorname{id}_A;
+\]
+而
+\[
+    B\xrightarrow{f^{-1}}A\xrightarrow{f}B
+\]
+给出
+\[
+    f\circ f^{-1}=\operatorname{id}_B.
+\]
+
+\subsection{恒等映射}
+
+对任意集合$A$，恒等映射为
+\[
+    \operatorname{id}_A:A\to A,
+    \qquad
+    \operatorname{id}_A(a)=a.
+\]
+它是所有映射复合中的单位：
+\[
+    f\circ\operatorname{id}_A=f,
+    \qquad
+    \operatorname{id}_B\circ f=f
+\]
+其中$f:A\to B$。
+
+%——————————————————————————————————%
+
+\section{映射复合与交换图}
+
+\subsection{复合的类型匹配}
+
+若
+\[
+    f:A\to B,\qquad g:B\to C,
+\]
+则可以复合为
+\[
+    g\circ f:A\to C,
+    \qquad
+    (g\circ f)(a)=g(f(a)).
+\]
+
+能够复合的原因是：
+\[
+    f(a)\in B,
+\]
+而$g$的定义域正是$B$。映射复合不是“箭头看起来能连起来”这么简单，而是中间对象的类型必须匹配。
+
+\[
+    A\xrightarrow{\ f\ }B\xrightarrow{\ g\ }C
+    \quad\Longrightarrow\quad
+    A\xrightarrow{\ g\circ f\ }C.
+\]
+
+\subsection{结合律}
+
+\begin{theorem}[映射复合结合律]
+若
+\[
+    f:A\to B,\qquad
+    g:B\to C,\qquad
+    h:C\to D,
+\]
+则
+\[
+    h\circ(g\circ f)
+    =
+    (h\circ g)\circ f.
+\]
+\end{theorem}
+
+对任意$a\in A$：
+\[
+\begin{aligned}
+    (h\circ(g\circ f))(a)
+    &=h(g(f(a))),\\
+    ((h\circ g)\circ f)(a)
+    &=(h\circ g)(f(a))
+    =h(g(f(a))).
+\end{aligned}
+\]
+所以两者是同一个映射。
+
+\subsection{交换图}
+
+若两条从$A$到$D$的复合路径给出相同映射，例如
+\[
+    h\circ g\circ f
+    =
+    k\circ \ell,
+\]
+则称相应的图交换。交换图的核心不是图形美观，而是表达：
+\[
+    \text{沿不同路径走，得到同一个结果。}
+\]
+
+后续会不断遇到这种结构：
+\[
+\begin{aligned}
+    &\text{坐标变换：}&&y\circ x^{-1},\\
+    &\text{连续性：}&&g\circ f,\\
+    &\text{推前与拉回：}&&\mathrm d(g\circ f),\\
+    &\text{观测模型：}&&r\circ h,\\
+    &\text{李群运动：}&&r\circ L_g\circ\Exp.
+\end{aligned}
+\]
+它们都是“先应用右侧映射，再应用左侧映射”的复合规则。
+
+\subsection{映射的相等}
+
+两个从$A$到$B$的映射$f,g$相等，当且仅当
+\[
+    \forall a\in A,\qquad f(a)=g(a).
+\]
+只比较公式的外观是不够的；定义域、陪域和每个输入的输出都必须一致。
+
+%——————————————————————————————————%
+
+\section{等价关系与等价类}
+
+\subsection{关系}
+
+集合$M$上的二元关系可以表示为$M\times M$的子集：
+\[
+    \mathord{\sim}\ \subseteq M\times M.
+\]
+写作
+\[
+    x\sim y
+\]
+表示有序对$(x,y)$属于这个关系。
+
+\begin{definition}[等价关系]
+关系$\sim$称为等价关系，若满足：
+
+\begin{enumerate}
+    \item 自反性：
+    \[
+        \forall x\in M,\qquad x\sim x;
+    \]
+    \item 对称性：
+    \[
+        x\sim y\Longrightarrow y\sim x;
+    \]
+    \item 传递性：
+    \[
+        (x\sim y\land y\sim z)
+        \Longrightarrow
+        x\sim z.
+    \]
+\end{enumerate}
+\end{definition}
+
+直觉上，等价关系规定哪些原本不同的元素在当前问题中应当被视为“同一种对象”。
+
+\subsection{等价类}
+
+\begin{definition}[等价类]
+给定$x\in M$，其等价类定义为
+\[
+    [x]_{\sim}
+    =
+    \{y\in M:y\sim x\}.
+\]
+\end{definition}
+
+必须区分：
+\[
+    x\in M,
+    \qquad
+    [x]_{\sim}\subseteq M.
+\]
+$x$是$M$的一个元素，而$[x]_{\sim}$是由许多元素组成的子集。
+
+\begin{theorem}[等价类的基本性质]
+若$\sim$是等价关系，则：
+
+\begin{enumerate}
+    \item
+    \[
+        x\in[x]_{\sim};
+    \]
+    \item
+    \[
+        [x]_{\sim}=[y]_{\sim}
+        \Longleftrightarrow
+        x\sim y;
+    \]
+    \item 若
+    \[
+        [x]_{\sim}\neq[y]_{\sim},
+    \]
+    则
+    \[
+        [x]_{\sim}\cap[y]_{\sim}=\varnothing.
+    \]
+\end{enumerate}
+\end{theorem}
+
+因此等价类把$M$分割成互不相交的块：
+\[
+    M
+    =
+    \bigcup_{x\in M}[x]_{\sim}.
+\]
+这里的并集会重复列出相同的等价类；从不同等价类中各取一次后，才得到真正的划分。
+
+\subsection{等价关系与划分}
+
+\begin{theorem}[等价类划分]
+集合$M$上的每个等价关系诱导$M$的一个划分；反过来，$M$的每个划分都诱导一个等价关系。
+\end{theorem}
+
+给定一个划分$\mathcal P$，定义
+\[
+    x\sim y
+    \Longleftrightarrow
+    \text{$x$和$y$属于$\mathcal P$中的同一个块}.
+\]
+同一个块中的元素彼此等价，不同块中的元素不等价。
+
+\subsection{群作用产生的等价关系}
+
+若群$G$作用在集合$\mathcal X$上，定义
+\[
+    x\sim y
+    \Longleftrightarrow
+    \exists g\in G,\qquad y=g\cdot x.
+\]
+这是等价关系：
+
+\begin{itemize}
+    \item 单位元作用给出自反性；
+    \item 用$g^{-1}$作用给出对称性；
+    \item 用群乘法$g_2g_1$给出传递性。
+\end{itemize}
+
+其等价类就是轨道：
+\[
+    [x]
+    =
+    G\cdot x
+    =
+    \{g\cdot x:g\in G\}.
+\]
+SLAM中的全局坐标规范、只依赖相对位姿的状态表示，都可以在这个层次上理解。
+
+%——————————————————————————————————%
+
+\section{商集与典范投影}
+
+\subsection{商集}
+
+\begin{definition}[商集]
+等价关系$\sim$下的商集定义为所有等价类组成的集合：
+\[
+    M/{\sim}
+    =
+    \{[x]_{\sim}:x\in M\}.
+\]
+\end{definition}
+
+商集中的元素不是原来的$x\in M$，而是等价类：
+\[
+    [x]_{\sim}\in M/{\sim}.
+\]
+
+\begin{definition}[典范投影]
+映射
+\[
+    \pi_{\sim}:M\to M/{\sim},
+    \qquad
+    \pi_{\sim}(x)=[x]_{\sim}
+\]
+称为典范投影或商映射。
+\end{definition}
+
+典范投影一定是满射，因为商集的每个元素按定义都是某个$[x]_{\sim}$。它通常不是单射：
+\[
+    x\sim y
+    \Longrightarrow
+    \pi_{\sim}(x)=\pi_{\sim}(y).
+\]
+
+\subsection{商集上的良定义映射}
+
+若希望定义
+\[
+    F:M/{\sim}\to N
+\]
+并通过代表元写成
+\[
+    F([x]_{\sim})=f(x),
+\]
+则必须验证：
+\[
+    x\sim y
+    \Longrightarrow
+    f(x)=f(y).
+\]
+
+否则同一个商集元素
+\[
+    [x]_{\sim}=[y]_{\sim}
+\]
+会因为选取不同代表元而得到不同值，$F$根本不是一个函数。这一条件称为良定义性（well-definedness）。
+
+\begin{theorem}[商集映射的因子分解]
+设$f:M\to N$。存在唯一映射
+\[
+    \overline f:M/{\sim}\to N
+\]
+满足
+\[
+    f=\overline f\circ\pi_{\sim}
+\]
+当且仅当
+\[
+    x\sim y\Longrightarrow f(x)=f(y).
+\]
+\end{theorem}
+
+这一定理说明：商集上的映射不是任意把公式中的$x$替换为$[x]$，而是要求原映射对等价类保持不变。
+
+更一般地，若希望定义
+\[
+    F:M/{\sim}\to N/{\approx},
+    \qquad
+    F([x]_{\sim})=[f(x)]_{\approx},
+\]
+则需要
+\[
+    x\sim y
+    \Longrightarrow
+    f(x)\approx f(y).
+\]
+
+\subsection{模$n$整数}
+
+在$\Z$上定义关系：
+\[
+    a\sim b
+    \Longleftrightarrow
+    a-b\in n\Z,
+    \qquad n\in\N.
+\]
+这就是同余关系：
+\[
+    a\equiv b\pmod n.
+\]
+
+商集记作
+\[
+    \Z/n\Z.
+\]
+其中一个元素为
+\[
+    [a]_n=a+n\Z.
+\]
+
+尝试定义加法：
+\[
+    [a]_n+[b]_n:=[a+b]_n.
+\]
+必须验证良定义性。若
+\[
+    a\equiv a'\pmod n,
+    \qquad
+    b\equiv b'\pmod n,
+\]
+则
+\[
+    a-a'\in n\Z,\qquad b-b'\in n\Z.
+\]
+于是
+\[
+    (a+b)-(a'+b')
+    =
+    (a-a')+(b-b')
+    \in n\Z,
+\]
+所以
+\[
+    a+b\equiv a'+b'\pmod n.
+\]
+因此
+\[
+    [a+b]_n=[a'+b']_n,
+\]
+加法与代表元选择无关，确实是良定义的。
+
+\subsection{代表元与选择公理}
+
+有时希望从每个等价类中选取一个代表元，组成一个代表元系统。这种同时选择通常会调用选择公理。
+
+但商集的定义
+\[
+    M/{\sim}=\{[x]_{\sim}:x\in M\}
+\]
+不需要预先选代表元；典范投影和良定义映射也不需要先把每个类“压缩”为一个人为选定的元素。
+
+\[
+    \boxed{
+    \text{商对象应尽量通过等价类本身定义，而不是依赖任意代表元。}
+    }
+\]
+
+%——————————————————————————————————%
+
+\section{与后续拓扑、流形和SLAM的连接}
+
+\subsection{圆周作为商集}
+
+定义实数轴上的关系：
+\[
+    \theta\sim\varphi
+    \Longleftrightarrow
+    \theta-\varphi\in2\pi\Z.
+\]
+也就是相差整数圈的角度被视为等价。
+
+映射
+\[
+    q:\R\to S^1,
+    \qquad
+    q(\theta)=(\cos\theta,\sin\theta)
+\]
+满足
+\[
+    q(\theta)=q(\varphi)
+    \Longleftrightarrow
+    \theta-\varphi\in2\pi\Z.
+\]
+因此在集合层面有双射
+\[
+    \R/(2\pi\Z)\cong_{\mathrm{set}}S^1.
+\]
+第二章为商集和$S^1$分别赋予相应拓扑后，这个双射会成为同胚：
+\[
+    \R/(2\pi\Z)\cong_{\mathrm{top}}S^1.
+\]
+
+这为周期角度、圆周和$\SO(2)$建立了第一个商空间直觉。
+
+\subsection{单位四元数与三维旋转}
+
+单位四元数构成三维球面：
+\[
+    S^3
+    =
+    \{q\in\R^4:\|q\|=1\}.
+\]
+存在映射
+\[
+    \Phi:S^3\to\SO(3)
+\]
+满足
+\[
+    \Phi(q)=\Phi(-q).
+\]
+所以不同四元数$q$和$-q$表示同一个旋转。定义等价关系
+\[
+    q\sim -q,
+\]
+则在适当拓扑下：
+\[
+    \SO(3)
+    \cong_{\mathrm{top}}
+    S^3/{\sim}.
+\]
+
+本章只保留这个结构预告，不展开$\Phi$的矩阵公式。第四章会讨论四元数双覆盖， 第五章会直接使用$\SO(3)$和$\SE(3)$的李群结构。
+
+\subsection{状态、残差与规范商}
+
+SLAM状态和观测可以抽象为：
+\[
+    \mathcal X,\qquad
+    \mathcal Z,\qquad
+    h:\mathcal X\to\mathcal Z.
+\]
+残差是映射
+\[
+    r:\mathcal X\to\R^m.
+\]
+零残差约束集合是原像：
+\[
+    \mathcal C
+    =
+    r^{-1}(\{0\}).
+\]
+
+多个约束的共同可行集合是：
+\[
+    \mathcal C
+    =
+    \bigcap_{i\in I}r_i^{-1}(\{0\}).
+\]
+如果群$G$作用在$\mathcal X$上并且
+\[
+    r(g\cdot x)=r(x),
+\]
+则残差不能区分同一轨道中的状态，规范化后的状态对象更接近商集：
+\[
+    \mathcal X/G.
+\]
+
+这些例子只使用本章的集合和映射语言。连续性、开集、紧致性和局部坐标将在第二章和第三章中继续添加。
+
+%——————————————————————————————————%
+
+\section{本章小结：从集合到商集}
+
+本章最重要的对象和映射关系是：
+
+\begin{enumerate}
+    \item 集合是数学对象的载体，额外结构需要在集合上进一步指定；
+    \item 幂集是所有子集组成的集合：
+    \[
+        \P(M)=\{A:A\subseteq M\};
+    \]
+    \item 笛卡尔积由有序对组成：
+    \[
+        A\times B=\{(a,b):a\in A,\ b\in B\};
+    \]
+    \item 映射$f:A\to B$必须为每个$a\in A$指定唯一的$f(a)\in B$；
+    \item 陪域$B$和像$f(A)$不同：
+    \[
+        f(A)\subseteq B;
+    \]
+    \item 原像
+    \[
+        f^{-1}(V)=\{a\in A:f(a)\in V\}
+    \]
+    不要求$f$可逆；
+    \item 单射、满射和双射分别描述不同输入、覆盖陪域和一一对应；
+    \item 映射可以在类型匹配时复合：
+    \[
+        A\xrightarrow{f}B\xrightarrow{g}C
+        \Longrightarrow
+        g\circ f:A\to C;
+    \]
+    \item 等价关系把集合分割为等价类，商集由等价类组成：
+    \[
+        M/{\sim}=\{[x]_{\sim}:x\in M\};
+    \]
+    \item 商集上的公式必须满足良定义性：
+    \[
+        x\sim y\Longrightarrow f(x)=f(y);
+    \]
+    \item 典范投影为
+    \[
+        \pi_{\sim}:M\to M/{\sim},
+        \qquad
+        \pi_{\sim}(x)=[x]_{\sim}.
+    \]
+\end{enumerate}
+
+下一章的问题是：在同一个集合$M$上，哪些子集应被称为开集？一旦指定
+\[
+    \mathcal O\subseteq\P(M),
+\]
+就得到拓扑空间$(M,\mathcal O)$，从而可以定义邻近、连续、收敛和局部结构。
+
+后续总主线为：
+\[
+    \text{集合}
+    \to
+    \text{映射}
+    \to
+    \text{商集}
+    \to
+    \text{拓扑空间}
+    \to
+    \text{拓扑流形}
+    \to
+    \text{可微流形}
+    \to
+    \text{李群与SLAM优化}.
+\]
