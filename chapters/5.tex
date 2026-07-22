@@ -2670,7 +2670,7 @@ BCH公式是
 
 \subsection{禁止直接对位姿加增量}
 
-设状态位姿为$g\in G=\SE(3)$，残差函数为
+设状态位姿为$g\in G=\SE(3)$。为了先说明流形状态不能直接加增量，本小节暂时把已经由观测模型和误差约定构造好的残差映射记为
 \[
     r:G\to\R^m.
 \]
@@ -2696,30 +2696,477 @@ BCH公式是
     r(g\Exp(\delta\xi))\in\R^m.
 \]
 
-\subsection{局部残差函数}
+\subsection{从预测一致性到残差函数}
 
-\begin{definition}[切空间中的局部残差]
-固定当前估计$g\in G$，定义
+上一小节先暂时把$r$当作已知，是为了集中说明“位姿点不能与李代数增量直接相加”。但残差并不是凭空给定的一行映射。更自然的顺序是先问：
 \[
-    \widetilde r_g:U\subset\mathfrak g\to\R^m,
+    \boxed{\text{什么叫状态预测与观测一致？}}
+\]
+只有明确了一致性条件，才有必要选择一种局部坐标，把不一致表示成可优化的向量。
+
+\subsubsection*{残差的内蕴起点：一致性而不是相减}
+
+设状态属于流形
+\[
+    x\in\mathcal X,
+\]
+传感器观测属于流形
+\[
+    y\in\mathcal Y.
+\]
+观测空间$\mathcal Y$不一定是欧氏空间，例如
+\[
+\begin{array}{c|c}
+\text{观测类型} & \text{观测空间}\\ \hline
+\text{像素} & \R^2\\
+\text{GPS位置} & \R^3\\
+\text{相对旋转} & \SO(3)\\
+\text{相对位姿} & \SE(3)
+\end{array}
+\]
+状态$x$对观测的预测由观测模型给出：
+\[
+    h:\mathcal X\to\mathcal Y,
     \qquad
-    \widetilde r_g(\delta\xi)=r(g\Exp(\delta\xi)),
+    x\longmapsto h(x).
 \]
-其中$U$是$0\in\mathfrak g$附近的邻域。
-\end{definition}
+因此，“预测与观测一致”的内蕴表达是
+\[
+    \boxed{h(x)=y.}
+\]
+这个陈述只比较$\mathcal Y$中的两个点，不需要预先定义减法。若$\mathcal Y$是$SO(3)$或$SE(3)$，直接写
+\[
+    h(x)-y
+\]
+通常没有内蕴意义，因为两个群元素不是同一个线性空间中的向量。
 
-显然
+\subsubsection*{用对角线表达预测与观测的一致}
+
+将预测与固定观测组成乘积空间中的点对：
 \[
-    \widetilde r_g(0)=r(g).
+    H_y:\mathcal X\to\mathcal Y\times\mathcal Y,
+    \qquad
+    H_y(x):=(h(x),y).
 \]
-由于$\widetilde r_g$的定义域是线性空间$\mathfrak g$，可以在$0$处进行普通的一阶线性化：
+在$\mathcal Y\times\mathcal Y$中定义对角线
 \[
-    \widetilde r_g(\delta\xi)
+    \Delta_{\mathcal Y}
+    :=
+    \{(z,z)\mid z\in\mathcal Y\}.
+\]
+那么
+\[
+    \boxed{
+    h(x)=y
+    \quad\Longleftrightarrow\quad
+    H_y(x)\in\Delta_{\mathcal Y}.
+    }
+\]
+所以最内蕴的“残差为零”并不是某个向量等于零，而是：
+\[
+    \boxed{
+    \text{预测值与观测值组成的点对落在乘积空间的对角线上。}
+    }
+\]
+残差向量的作用，是在对角线附近给出一个局部线性表示，描述点对偏离对角线的方向和大小。
+
+\subsubsection*{误差映射产生残差映射}
+
+为了进入最小二乘，需要选择一个局部误差映射
+\[
+    \epsilon:
+    \mathcal U\subseteq\mathcal Y\times\mathcal Y
+    \to E,
+\]
+其中$\mathcal U$是对角线附近的邻域，$E$是线性空间，通常取$E=\R^m$。对两个观测值$\hat y,y\in\mathcal Y$，$\epsilon(\hat y,y)$表示“预测$\hat y$相对观测$y$的误差”。至少应满足
+\[
+    \boxed{\epsilon(z,z)=0,\qquad\forall z\in\mathcal Y.}
+\]
+在局部更希望有
+\[
+    \epsilon(\hat y,y)=0
+    \quad\Longleftrightarrow\quad
+    \hat y=y.
+\]
+于是，对固定观测$y$，残差映射定义为
+\[
+    \boxed{
+    r_y:\mathcal X\to E,
+    \qquad
+    r_y(x):=\epsilon(h(x),y).
+    }
+\]
+它是复合映射
+\[
+    \mathcal X
+    \xrightarrow{\ H_y\ }
+    \mathcal Y\times\mathcal Y
+    \xrightarrow{\ \epsilon\ }
+    E.
+\]
+因此残差的自然来源是
+\[
+    \boxed{
+    \text{预测映射}
+    +\text{观测值}
+    +\text{比较规则}
+    \Longrightarrow
+    \text{残差映射}.
+    }
+\]
+本节后面出现的$r$，若没有特别说明，都是某个固定观测$y$下的$r_y$的简写。
+
+\subsubsection*{欧氏观测：熟悉的减法是特殊情形}
+
+若观测空间是欧氏空间
+\[
+    \mathcal Y=\R^m,
+\]
+则存在自然的全局比较规则
+\[
+    \epsilon(\hat y,y)=\hat y-y.
+\]
+此时
+\[
+    r_y(x)=h(x)-y,
+\]
+这才是高斯牛顿和传统最小二乘中熟悉的残差形式。
+
+例如，对一个三维点$p_B\in\R^3$和位姿
+\[
+    T=
+    \begin{bmatrix}R&t\\0&1\end{bmatrix}\in\SE(3),
+\]
+其世界坐标预测为
+\[
+    q_W(T)=Rp_B+t.
+\]
+设相机投影模型为
+\[
+    h(T)=\pi(q_W(T))\in\R^2,
+\]
+给定像素观测$z\in\R^2$，则
+\[
+    \epsilon(\hat z,z)=\hat z-z
+\]
+是合法的，得到
+\[
+    \boxed{
+    r_z(T)=\pi(Rp_B+t)-z.
+    }
+\]
+这里可以相减，不是因为“残差总能相减”，而是因为像素空间本来就是欧氏空间。
+
+\subsubsection*{流形观测：先构造相对误差，再取局部坐标}
+
+若观测空间本身是李群，例如
+\[
+    \mathcal Y=\SO(3)
+    \quad\text{或}\quad
+    \mathcal Y=\SE(3),
+\]
+则不能写
+\[
+    \hat y-y.
+\]
+可以先利用群结构把两个群元素比较为相对误差：
+\[
+    E:=y^{-1}\hat y\in\mathcal Y.
+\]
+当预测与观测一致时，
+\[
+    \hat y=y
+    \quad\Longrightarrow\quad
+    E=y^{-1}\hat y=e.
+\]
+再在单位元附近使用局部对数映射，将$E$拉回单位元切空间：
+\[
+    \boxed{
+    \epsilon(\hat y,y)
+    =
+    \Log(y^{-1}\hat y)
+    \in\mathfrak y.
+    }
+\]
+如果还要把$\mathfrak y$写成$\R^m$坐标，则再使用选定的$\vee$映射：
+\[
+    \boxed{
+    \epsilon^\vee(\hat y,y)
+    =
+    \bigl(\Log(y^{-1}\hat y)\bigr)^\vee
+    \in\R^{\dim\mathcal Y}.
+    }
+\]
+于是群值观测的一种常用残差为
+\[
+    \boxed{
+    r_y(x)
+    =
+    \bigl(\Log(y^{-1}h(x))\bigr)^\vee.
+    }
+\]
+它的对象链是
+\[
+\begin{aligned}
+    x\in\mathcal X
+    &\xrightarrow{\ h\ }
+    h(x)\in\mathcal Y\\
+    &\xrightarrow{\ y^{-1}(\cdot)\ }
+    y^{-1}h(x)\in\mathcal Y\\
+    &\xrightarrow{\ \Log\ }
+    \Log(y^{-1}h(x))\in\mathfrak y\\
+    &\xrightarrow{\ \vee\ }
+    r_y(x)\in\R^{\dim\mathcal Y}.
+\end{aligned}
+\]
+每一步都有明确的定义域、陪域和几何意义。局部性不可省略：$\Log$通常只在单位元附近、并在固定分支下使用。
+
+\begin{lieexample}{旋转观测残差}
+设预测旋转为
+\[
+    \hat R=h(x)\in\SO(3),
+\]
+观测旋转为$R_z\in\SO(3)$。定义从观测旋转到预测旋转的相对旋转
+\[
+    E_R:=R_z^\top\hat R\in\SO(3).
+\]
+局部旋转残差可定义为
+\[
+    \boxed{
+    r_R(x)
+    =
+    \bigl(\Log(R_z^\top h(x))\bigr)^\vee
+    \in\R^3.
+    }
+\]
+它满足
+\[
+    r_R(x)=0
+    \Longleftrightarrow
+    R_z^\top h(x)=I
+    \Longleftrightarrow
+    h(x)=R_z.
+\]
+这里$R_z^\top h(x)$不是“两个旋转相减”，而是从观测旋转到预测旋转的相对旋转；$\Log$再把单位元附近的相对旋转拉回
+\[
+    T_I\SO(3)=\mathfrak{so}(3),
+\]
+最后$\vee$把李代数元素写成三维坐标。
+\end{lieexample}
+
+\subsubsection*{残差坐标并不由几何唯一决定}
+
+一致性条件
+\[
+    h(x)=y
+\]
+是内蕴的；但把“不一致”表示成哪一个向量，通常还需要选择误差约定。例如对群值观测，可以定义
+\[
+    \epsilon_{\mathrm R}(\hat y,y)
+    :=
+    \Log(y^{-1}\hat y),
+\]
+也可以定义
+\[
+    \epsilon_{\mathrm L}(\hat y,y)
+    :=
+    \Log(\hat y y^{-1}).
+\]
+二者在$\hat y=y$时都为零，但对应不同的局部参考和不同的平凡化。由于
+\[
+    \hat y y^{-1}
+    =
+    y(y^{-1}\hat y)y^{-1},
+\]
+在误差足够小并选定相容的$\Log$分支时，
+\[
+    \boxed{
+    \epsilon_{\mathrm L}
     \simeq
-    r(g)+D\widetilde r_g\big|_0[\delta\xi].
+    \Ad_y\epsilon_{\mathrm R}.
+    }
 \]
+因此应检查：
+\begin{enumerate}
+    \item 残差为零表达的具体一致性条件是什么；
+    \item 残差向量属于哪个线性空间；
+    \item 它在哪个参考系或哪种平凡化下表达；
+    \item 协方差和Jacobian是否与该残差约定一致。
+\end{enumerate}
+零误差条件相同，不代表局部误差坐标、Jacobian和协方差可以混用。
+
+\subsubsection*{由残差进入最小二乘目标}
+
+有了
+\[
+    r_y(x)\in E\simeq\R^m
+\]
+之后，才可以定义代价。若测量噪声在该残差坐标下的协方差为
+\[
+    \Sigma\in\R^{m\times m},
+\]
+则常用的Mahalanobis代价为
+\[
+    \boxed{
+    \mathcal L(x)
+    =
+    \frac12r_y(x)^\top\Sigma^{-1}r_y(x).
+    }
+\]
+$\Sigma$不是独立于残差约定的抽象矩阵。若把$\Log(y^{-1}\hat y)$改成$\Log(\hat y y^{-1})$，残差坐标发生了线性变化，协方差也必须在同一个局部坐标变换下调整。
+
+\subsubsection*{当前估计附近的局部残差表示}
+
+现在回到优化问题。设残差映射
+\[
+    r_y:\mathcal X\to E
+\]
+已经按上述方式构造好，固定当前估计点
+\[
+    \hat x\in\mathcal X.
+\]
+取以$\hat x$为中心的局部参数化
+\[
+    \Phi_{\hat x}:U\subseteq V\to\mathcal X,
+    \qquad
+    \Phi_{\hat x}(0)=\hat x,
+\]
+其中$V$是局部增量所属的线性空间。定义残差在该局部参数化下的表示：
+\[
+    \boxed{
+    \widetilde r_{\hat x}
+    :=
+    r_y\circ\Phi_{\hat x}
+    :
+    U\subseteq V\to E.
+    }
+\]
+即
+\[
+    \widetilde r_{\hat x}(\delta)
+    =
+    r_y\bigl(\Phi_{\hat x}(\delta)\bigr),
+    \qquad
+    \widetilde r_{\hat x}(0)=r_y(\hat x).
+\]
+此时定义域和陪域都是线性空间，才可以在$0$处做普通的一阶展开：
+\[
+    \boxed{
+    \widetilde r_{\hat x}(\delta)
+    =
+    \widetilde r_{\hat x}(0)
+    +
+    d\widetilde r_{\hat x}\big|_0(\delta)
+    +
+    o(\|\delta\|).
+    }
+\]
+选定$V$和$E$的基后，$d\widetilde r_{\hat x}|_0$的矩阵才是后续高斯牛顿或Levenberg--Marquardt使用的Jacobian。
+
+\subsubsection*{李群状态的左右局部参数化}
+
+特别取$\mathcal X=G$，当前估计为$\hat g\in G$，并令$V=\mathfrak g$。右侧写入的局部参数化为
+\[
+    \Phi_{\hat g}^{\mathrm R}:U\subseteq\mathfrak g\to G,
+    \qquad
+    \Phi_{\hat g}^{\mathrm R}(\delta\xi)
+    =
+    \hat g\Exp(\delta\xi).
+\]
+于是
+\[
+    \boxed{
+    \widetilde r_{\hat g}^{\mathrm R}(\delta\xi)
+    =
+    r_y\bigl(\hat g\Exp(\delta\xi)\bigr).
+    }
+\]
+若采用左侧写入的局部参数化，
+\[
+    \Phi_{\hat g}^{\mathrm L}(\delta\xi)
+    =
+    \Exp(\delta\xi)\hat g,
+\]
+则得到另一函数
+\[
+    \boxed{
+    \widetilde r_{\hat g}^{\mathrm L}(\delta\xi)
+    =
+    r_y\bigl(\Exp(\delta\xi)\hat g\bigr).
+    }
+\]
+二者一般不同，因为它们是同一个残差映射在两种不同局部参数化下的复合。后续的$J_{\mathrm R}$和$J_{\mathrm L}$正是这两个局部函数在$0$处微分的坐标矩阵。
+
+\begin{lieexample}{IMU预积分残差的几何来源}
+对两个关键帧，先只写主状态的几何部分
+\[
+    x_i=(R_i,v_i,p_i,b_i),
+    \qquad
+    x_j=(R_j,v_j,p_j,b_j).
+\]
+设$\Delta t=t_j-t_i$，$g_W$为世界坐标系中的重力加速度。状态预测产生的关键帧间相对量为
+\[
+    H_{ij}(x_i,x_j)
+    =
+    \left(
+    R_i^\top R_j,\;
+    R_i^\top(v_j-v_i-g_W\Delta t),\;
+    R_i^\top\left(
+    p_j-p_i-v_i\Delta t-\frac12g_W\Delta t^2
+    \right)
+    \right),
+\]
+其陪域为
+\[
+    \SO(3)\times\R^3\times\R^3.
+\]
+IMU预积分给出观测
+\[
+    \bar\Delta_{ij}
+    =
+    (\bar\Delta R_{ij},\bar\Delta v_{ij},\bar\Delta p_{ij}).
+\]
+在选定旋转误差约定后，比较规则可以写成
+\[
+\begin{aligned}
+    &\epsilon_{\mathrm{IMU}}
+    \left(
+    (R,\Delta v,\Delta p),
+    (\bar R,\bar{\Delta v},\bar{\Delta p})
+    \right)\\
+    &\qquad:=
+    \begin{bmatrix}
+        \bigl(\Log(\bar R^{-1}R)\bigr)^\vee\\
+        \Delta v-\bar{\Delta v}\\
+        \Delta p-\bar{\Delta p}
+    \end{bmatrix}
+    \in\R^9.
+\end{aligned}
+\]
+因此IMU残差是
+\[
+    \boxed{
+    r_{ij}^{\mathrm{IMU}}(x_i,x_j)
+    =
+    \epsilon_{\mathrm{IMU}}
+    \bigl(
+    H_{ij}(x_i,x_j),
+    \bar\Delta_{ij}
+    \bigr).
+    }
+\]
+旋转部分不能直接相减，所以先构造
+\[
+    \bar\Delta R_{ij}^{-1}(R_i^\top R_j)\in\SO(3),
+\]
+再经$\Log$和$\vee$拉回$\R^3$；速度和位置部分本来就在欧氏空间中，才可以直接相减。偏置和噪声的更完整模型会改变$H_{ij}$及协方差，但不改变“预测映射加观测值加比较规则”的残差构造逻辑。
+\end{lieexample}
+
+到这里，$r_y$才被完整定义；固定当前估计并选择右侧或左侧局部参数化后，才得到用于线性化的$\widetilde r_{\hat g}^{\mathrm R}$或$\widetilde r_{\hat g}^{\mathrm L}$。下一小节将把它们的微分写成Jacobian。
 
 \subsection{Jacobian是微分在局部扰动坐标下的矩阵}
+
+以下固定观测$y$，并为简化记号把已经构造好的$r_y$写成$r$；因此这里的$r$不是凭空给定的原始对象，而是上一小节的残差映射。
 
 先不固定右侧或左侧扰动。设$V$是一个与$G$维数相同的线性空间，并选择以$g$为中心的局部参数化
 \[
@@ -2820,35 +3267,35 @@ BCH公式是
     \simeq F(x)+J_F(x)\delta x.
 \]
 
-现在改用$u$描述同一个变量$x$。设
+现在改用$u$描述同一个变量$x$。为避免和前文表示旋转向量的$\phi$混淆，这里用$\chi$表示普通的坐标换元。$\chi$只是一个从新坐标$u$到原变量$x$的函数，不代表旋转，也不代表位姿。设
 \[
-    \phi:V\subset\R^k\to U,
+    \chi:V\subset\R^k\to U,
     \qquad
-    x=\phi(u),
+    x=\chi(u),
 \]
 并令$r:U\to\R^m$。真正关于$u$求导的函数是复合映射
 \[
-    V\xrightarrow{\ \phi\ }U\xrightarrow{\ r\ }\R^m.
+    V\xrightarrow{\ \chi\ }U\xrightarrow{\ r\ }\R^m.
 \]
 链式法则给出
 \[
     \boxed{
-    d(r\circ\phi)_u
-    =dr_{\phi(u)}\circ d\phi_u.
+    d(r\circ\chi)_u
+    =dr_{\chi(u)}\circ d\chi_u.
     }
 \]
 在标准坐标下，这才写成常见的矩阵乘法
 \[
     \boxed{
-    J_{r\circ\phi}(u)
-    =J_r(\phi(u))J_\phi(u).
+    J_{r\circ\chi}(u)
+    =J_r(\chi(u))J_\chi(u).
     }
 \]
 
 \begin{lieexample}{一维换元已经会改变Jacobian}
-令$r(x)=x^2$，并用$x=\phi(u)=e^u$换元，则
+令$r(x)=x^2$，并用$x=\chi(u)=e^u$换元，则
 \[
-    (r\circ\phi)(u)=e^{2u}.
+    (r\circ\chi)(u)=e^{2u}.
 \]
 因为
 \[
@@ -2858,28 +3305,28 @@ BCH公式是
 \]
 所以
 \[
-    \frac{d(r\circ\phi)}{du}
+    \frac{d(r\circ\chi)}{du}
     =\frac{dr}{dx}\frac{dx}{du}
     =2e^{2u}.
 \]
 同一个局部变化用$\delta x$或$\delta u$表示时满足
 \[
-    \delta x\simeq J_\phi(u)\delta u,
+    \delta x\simeq J_\chi(u)\delta u,
     \qquad
-    \delta r\simeq J_r(x)J_\phi(u)\delta u.
+    \delta r\simeq J_r(x)J_\chi(u)\delta u.
 \]
 所以Jacobian始终相对于所选局部参数而言，这一问题并不是到了李群才出现。
 \end{lieexample}
 
-若$\phi$是局部微分同胚，$x=\phi(u)$，则还要区分正向与逆向换元：
+若$\chi$是局部微分同胚，$x=\chi(u)$，则还要区分正向与逆向换元：
 \[
-    d\phi_u:T_u\R^n\to T_x\R^n,
+    d\chi_u:T_u\R^n\to T_x\R^n,
     \qquad
-    d(\phi^{-1})_x:T_x\R^n\to T_u\R^n,
+    d(\chi^{-1})_x:T_x\R^n\to T_u\R^n,
 \]
 且
 \[
-    J_{\phi^{-1}}(x)=J_\phi(u)^{-1}.
+    J_{\chi^{-1}}(x)=J_\chi(u)^{-1}.
 \]
 因此高等数学中同样需要固定变量、映射方向和扰动所属空间。
 
@@ -2944,7 +3391,10 @@ BCH公式是
 \[
     r:\SE(3)\to\R^m.
 \]
-对$\delta\xi\in\se(3)=T_I\SE(3)$，不能写$T+\delta\xi$，而要选择从$0\in\se(3)$到$T$邻域的局部参数化。按扰动放置侧记为
+对$\delta\xi\in\se(3)=T_I\SE(3)$，不能写$T+\delta\xi$，而要选择从$0\in\se(3)$到$T$邻域的局部参数化。
+这里的$\psi$（读作 ``psi''）不是一个新的位姿，也不是一个增量；它是一个函数，作用是把李代数中的小增量变成$T$附近的位姿。它的输入是$\delta\xi\in\se(3)$，输出是$\SE(3)$中的一个位姿。上标$\mathrm{right}$或$\mathrm{left}$只说明增量写在$T$的右侧还是左侧。
+
+因此，按扰动放置侧记为
 \[
     \psi_T^{\mathrm{right}}(\delta\xi_{\mathrm{right}})
     =T\Exp(\delta\xi_{\mathrm{right}}),
