@@ -219,249 +219,92 @@
 \]
 统一表示这个关于端点状态的概率权重。
 
-\subsubsection{从概率因子到残差平方}
+\subsubsection{从概率因子回到本章需要的四个对象}
 
-现在说明为什么概率公式会变成优化器熟悉的残差平方，并把这一步放回状态流形中理解。为避免新记号遮住问题，先与第五章的记号对齐。
-
-\textbf{第一层：先对齐状态与李群记号。}
-第五章讨论单个位姿时，用$G$表示李群，用$g\in G$表示群上的点，用$\mathfrak g=T_eG$表示单位元切空间；$\delta\xi$只表示选定左、右扰动后的一组李代数局部坐标。本章继续遵守这个约定：
+上一章已经从随机点出发，建立了
 \[
-    R_k\in\SO(3)
-    \quad\text{是旋转群上的点},
+    \text{状态流形}
+    \longrightarrow
+    \text{几何比较}
+    \longrightarrow
+    \text{局部残差}
+    \longrightarrow
+    \text{局部高斯因子}
+    \longrightarrow
+    \text{加权残差平方}
+\]
+这条共同主线。本章不再重新引入一般因子记号，只需把其中四个位置换成IMU问题的具体对象。
+
+第一，单个关键帧状态为
+\[
+    x_k=(R_k,v_k,p_k,b_{g,k},b_{a,k})
+    \in\mathcal X,
     \qquad
-    \delta\theta_k\in\R^3,
-    \quad
-    (\delta\theta_k)^\wedge\in\so(3).
+    \mathcal X:=\SO(3)\times\R^{12}.
 \]
-也就是说，$(\delta\theta_k)^\wedge$才是李代数元素，$\delta\theta_k$是它在hat/vee识别下的三维坐标。后文优化器中出现的旋转增量都按这个标准读取。
-不同之处只在于，一个IMU关键帧除了旋转，还包含速度、位置和两个bias，所以把完整状态记为
-\[
-    x_k=(R_k,v_k,p_k,b_{g,k},b_{a,k}).
-\]
-其中$R_k\in\SO(3)$，其余四个分量都属于$\R^3$。因此所有合法关键帧状态组成的空间记为
-\[
-\boxed{
-    \mathcal X
-    :=\SO(3)\times\R^3\times\R^3\times\R^3\times\R^3
-    =\SO(3)\times\R^{12},
-    \qquad x_k\in\mathcal X.
-}
-\]
-这里的乘号$\times$只表示“把五类分量按顺序组成一个状态”，不是矩阵乘法。$\mathcal X$是状态空间，$x_k$是其中一个状态点；虽然它有十五个局部自由度，但旋转分量仍不能在全局上当作三个普通实数。本章下一节会再正式展开它的切空间结构。
-
-现在只看最具体的IMU因子。它连接关键帧$i$和$j$，所以输入就是两个候选状态
+IMU因子的候选输入是一对端点状态
 \[
     (x_i,x_j)\in\mathcal X\times\mathcal X.
 \]
-区间IMU数据$\mathcal I_{ij}$固定后，因子可先理解为一个“状态相容性评分函数”
+
+第二，端点状态经过相对化映射，产生由当前候选状态预测的关键帧间相对运动：
 \[
-\boxed{
-    \psi_{\mathrm{imu},ij}:
-    \mathcal X\times\mathcal X\to\R_{>0},
+    \Pi_{ij}:
+    \mathcal X\times\mathcal X\to\mathcal N,
     \qquad
-    (x_i,x_j)\longmapsto
-    \psi_{\mathrm{imu},ij}(x_i,x_j;\mathcal I_{ij}).
-}
+    \mathcal N:=\SO(3)\times\R^3\times\R^3.
 \]
-输入是一对关键帧状态，输出是一个正数：越符合这段IMU数据，权重越大。这个正数还不是残差，也不是状态增量。
-
-\begin{samepage}
-后面为了同时讨论视觉因子和IMU因子的共同结构，只使用一个简写：把某个固定因子$a$所需的全部输入合写为
+第三，原始IMU序列经过预积分和bias局部修正，产生同一空间中的相对测量
 \[
-    q_a\in\mathcal M_a.
+    \Delta_{ij}^{\mathrm{corr}}
+    \in\mathcal N.
 \]
-这里$a$只是因子编号，$q_a$是该因子的输入，$\mathcal M_a$是这些输入所在的状态空间。对当前IMU因子，具体就是
+第四，选择与噪声传播一致的局部比较映射
 \[
-    q_a=(x_i,x_j),
-    \qquad
-    \mathcal M_a=\mathcal X\times\mathcal X.
+    \epsilon_{\mathrm{imu}}:
+    \mathcal N\times\mathcal N\to\R^9,
 \]
-因此通用写法$\psi_a:\mathcal M_a\to\R_{>0}$只是上面IMU评分函数的缩写，并没有额外引入一种新状态。
-\end{samepage}
-
-\textbf{第二层：残差是一个局部几何比较映射。}
-设因子预测的几何量属于测量流形$\mathcal Y_a$，预测映射为
-\[
-    h_a:\mathcal M_a\to\mathcal Y_a,
-\]
-实际测量为$z_a\in\mathcal Y_a$。为了比较$z_a$与$h_a(q_a)$，还要选定局部比较规则
-\[
-    \mathcal C_a:
-    \mathcal Y_a\times\mathcal Y_a
-    \longrightarrow \mathcal E_a,
-\]
-其中$\mathcal E_a\simeq\R^{d_a}$是因子采用的局部误差空间。残差映射才是
+并按上一章“预测在前、测量在后”的约定定义
 \[
 \boxed{
-    r_a(q_a)
-    :=\mathcal C_a\bigl(z_a,h_a(q_a)\bigr)
-    \in\mathcal E_a.
+    r_{Rvp}(x_i,x_j)
+    :=
+    \epsilon_{\mathrm{imu}}\left(
+      \Pi_{ij}(x_i,x_j),
+      \Delta_{ij}^{\mathrm{corr}}
+    \right).
 }
 \]
-当$\mathcal Y_a$是欧氏空间时，$\mathcal C_a$可以是普通差；当其中含有旋转时，必须先组成相对旋转，再用$\Log$送到单位元切空间。例如
+bias随机游走再补充六维残差，最终得到
 \[
-    \Log\bigl(R_m^{-1}R_s\bigr)^\vee
-    \in T_I\SO(3)\simeq\R^3.
+    r_{\mathrm{imu},ij}(x_i,x_j)\in\R^{15}.
 \]
-因此$r_a(q_a)$通常既不是状态，也不属于状态切空间$T_{q_a}\mathcal M_a$；它属于测量误差的局部线性空间。改变左右误差、局部平凡化或$\Log$内的乘法顺序，都会改变这个残差映射及其协方差坐标。
-
-\textbf{第三层：协方差的逆在残差空间上定义信息二次型。}
-若残差局部误差的协方差为$\Sigma_a$，则它描述$\mathcal E_a$中随机切向量的二阶扩散。其逆
+在与这套局部误差坐标一致的协方差
+\(\Sigma_{\mathrm{imu},ij}\)下，因子写成
 \[
-    W_a:=\Sigma_a^{-1}
+    \psi_{\mathrm{imu},ij}(x_i,x_j)
+    \propto
+    \exp\left(
+      -\frac12
+      r_{\mathrm{imu},ij}^\top
+      \Sigma_{\mathrm{imu},ij}^{-1}
+      r_{\mathrm{imu},ij}
+    \right).
 \]
-在坐标无关的语言中应理解为$\mathcal E_a$上的正定协变双线性型
-\[
-    W_a:\mathcal E_a\times\mathcal E_a\to\R.
-\]
-它把残差向量$r_a$变成残差协向量
-\[
-    \lambda_a
-    :=W_a\bigl(r_a(q_a),\,\cdot\,\bigr)
-    \in\mathcal E_a^\ast.
-\]
-选定基后，$\lambda_a$的列坐标就是$W_ar_a=\Sigma_a^{-1}r_a$。对应的单因子能量为
-\[
-    F_a(q_a)
-    :=\frac12W_a\bigl(r_a(q_a),r_a(q_a)\bigr)
-    =\frac12r_a(q_a)^\top\Sigma_a^{-1}r_a(q_a).
-\]
-局部高斯因子正是
-\[
-    \psi_a(q_a)
-    \approx
-    \kappa_a\exp\left(
-        -\frac12 r_a(q_a)^\top
-        \Sigma_a^{-1}r_a(q_a)
-    \right),
-\]
-其中$\kappa_a$与当前状态无关。定义加权平方范数
-\[
-    \|r\|_{\Sigma^{-1}}^2
-    :=r^\top\Sigma^{-1}r.
-\]
-于是
-\[
-    -2\log\psi_a(q_a)
-    =\|r_a(q_a)\|_{\Sigma_a^{-1}}^2
-      +\text{与状态无关的常数}.
-\]
-多个因子在概率上相乘，取负对数后就变成多个代价相加。因此，最小二乘中的“平方”不是凭经验添加的，而是高斯噪声负对数似然的结果。
-
-\textbf{第四层：推前传递状态变化，拉回传递测量规则。}
-在当前因子输入$q_a\in\mathcal M_a$处，它的一阶变化是切向量
-\[
-    u_a\in T_{q_a}\mathcal M_a.
-\]
-残差映射的微分，也就是推前，满足
-\[
-    dr_{a,q_a}:
-    T_{q_a}\mathcal M_a
-    \longrightarrow
-    T_{r_a(q_a)}\mathcal E_a
-    \simeq\mathcal E_a.
-\]
-它回答“沿状态方向$u_a$运动时，残差以多快的速度变化”。残差协向量则沿相反方向通过对偶映射拉回：
+因此本章后面需要完成的不是一般概率论推导，而是具体确定
 \[
 \boxed{
-    dF_{a,q_a}
-    =(dr_{a,q_a})^\ast\lambda_a
-    \in T_{q_a}^\ast\mathcal M_a.
-}
-\]
-对任意$u_a\in T_{q_a}\mathcal M_a$，这条等式的含义是
-\[
-\begin{aligned}
-    dF_{a,q_a}(u_a)
-    &=\lambda_a\bigl(dr_{a,q_a}u_a\bigr)\\
-    &=W_a\bigl(r_a(q_a),dr_{a,q_a}u_a\bigr).
-\end{aligned}
-\]
-因此，推前把状态切向量送进残差空间；拉回把残差空间中“怎样测量变化”的协向量送回状态余切空间。二者方向相反，分别作用于向量与协向量。
-
-若在$q_a$处选定局部参数化$\Phi_{q_a}$，令
-\[
-    \Phi_{q_a}(0)=q_a,
-    \qquad
-    \widetilde r_a(\delta x_a)
-    :=r_a\bigl(\Phi_{q_a}(\delta x_a)\bigr),
-\]
-其中$\delta x_a$只是$T_{q_a}\mathcal M_a$在所选局部基下的坐标。对IMU因子，它由两端状态的局部增量$\delta x_i,\delta x_j$堆叠而成；其中旋转部分仍按第五章约定通过指数映射更新，其余欧氏分量使用加法更新。
-在这套局部参数化下，工程上使用的Jacobian是复合微分
-\[
-    J_a
-    =\left[
-      dr_{a,q_a}\circ d\Phi_{q_a}\big|_0
-     \right]
-\]
-在所选基下的矩阵表示。于是上述余切向量写成熟悉的坐标形式
-\[
-    dF_{a,q_a}
-    \quad\longleftrightarrow\quad
-    J_a^\top\Sigma_a^{-1}r_a.
-\]
-严格地说，$J_a^\top\Sigma_a^{-1}r_a$首先表示状态余切空间中的协向量，不是天然的状态更新向量。只有再借助状态空间度量、可逆的Hessian近似或阻尼正规方程，才能把它转换为切空间中的求解方向。
-
-同理，残差信息型$W_a$经$dr_{a,q_a}$拉回，得到状态切空间上的Gauss--Newton二次型
-\[
-\boxed{
-\begin{aligned}
-    H_a^{\mathrm{GN}}(u_a,v_a)
-    &:=\bigl((dr_{a,q_a})^\ast W_a\bigr)
-       (u_a,v_a)\\
-    &:=W_a\bigl(dr_{a,q_a}u_a,
-                 dr_{a,q_a}v_a\bigr),
-\end{aligned}
-}
-\]
-其坐标矩阵正是
-\[
-    H_a^{\mathrm{GN}}=J_a^\top\Sigma_a^{-1}J_a.
-\]
-它是定义在$T_{q_a}\mathcal M_a$上的半正定信息型，并可诱导从切空间到余切空间的线性映射；当存在规范自由度或不可观方向时，它可以退化。因此正规方程的几何作用是：用这个二阶型把待求切向量转换成协向量，再与负的一阶拉回量匹配。
-更明确地，令它诱导的线性映射为
-\[
-\begin{aligned}
-    (H_a^{\mathrm{GN}})^\flat:
-    T_{q_a}\mathcal M_a&\to T_{q_a}^\ast\mathcal M_a,\\
-    \bigl[(H_a^{\mathrm{GN}})^\flat u_a\bigr](v_a)
-    &:=H_a^{\mathrm{GN}}(u_a,v_a),
-\end{aligned}
-\]
-则单因子线性化正规方程的类型是
-\[
-    (H_a^{\mathrm{GN}})^\flat\Delta q_a
-    =-dF_{a,q_a},
-    \qquad
-    \Delta q_a\in T_{q_a}\mathcal M_a,
-\]
-左侧由待求切向量产生协向量，右侧本来就是代价微分这一协向量。选定局部基后，$\Delta q_a$的坐标记为$\delta x_a$，它才成为熟悉的矩阵方程$H_a^{\mathrm{GN}}\delta x_a=-J_a^\top\Sigma_a^{-1}r_a$。
-
-整条对象链可以浓缩为
-\[
-\boxed{
-\begin{aligned}
-q_a\in\mathcal M_a
-&\xrightarrow{\ r_a\ }
-r_a(q_a)\in\mathcal E_a
-\xrightarrow{\ W_a\ }
-\lambda_a\in\mathcal E_a^\ast\\
-T_{q_a}\mathcal M_a
-&\xrightarrow{\ dr_{a,q_a}\ }
-\mathcal E_a,
-\qquad
-\mathcal E_a^\ast
-\xrightarrow{\ (dr_{a,q_a})^\ast\ }
-T_{q_a}^\ast\mathcal M_a.
-\end{aligned}
+\begin{array}{c|c}
+\text{对象} & \text{IMU问题中的内容}\\ \hline
+\Pi_{ij} & \text{端点状态预测出的相对旋转、速度和位置}\\
+\Delta_{ij}^{\mathrm{corr}} & \text{原始IMU压缩并经bias修正的相对测量}\\
+\epsilon_{\mathrm{imu}} & \text{旋转对数误差与欧氏向量差}\\
+\Sigma_{\mathrm{imu},ij} & \text{同一局部误差坐标中的传播协方差}
+\end{array}
 }
 \]
 
-对视觉因子，$r_{C,kl}$通常是投影预测与像素观测的局部差；对IMU因子，$r_{\mathrm{imu},ij}$是关键帧状态给出的相对运动与预积分相对测量的局部差。后文会具体构造它的旋转、速度、位置和bias分量。
-
-为简化记号，下面的先验残差暂时视为已经白化，所以写成$\|r_{\mathrm{prior}}\|^2$。如果先验尚未白化，它也应当带有自己的协方差权重。
-
-对这个后验取负对数，并在各因子的局部误差坐标中采用高斯近似，才得到加权非线性最小二乘：
+对窗口后验取负对数后，局部高斯因子给出加权非线性最小二乘：
 \[
 \boxed{
     X^*
@@ -472,9 +315,16 @@ T_{q_a}^\ast\mathcal M_a.
        \|r_{C,kl}(X)\|_{\Sigma_{C,kl}^{-1}}^2
       +\sum_{(i,j)\in\mathcal E_{\mathrm{imu}}}
        \|r_{\mathrm{imu},ij}(X)\|_{\Sigma_{\mathrm{imu},ij}^{-1}}^2
-    \right).
+    \right),
 }
 \]
+其中
+\[
+    \|r\|_{\Sigma^{-1}}^2
+    :=r^\top\Sigma^{-1}r.
+\]
+先验若尚未白化，也应带有自己的协方差权重。
+
 这里$r_{C,kl}$是视觉约束，$r_{\mathrm{imu},ij}$应当把$t_i$到$t_j$之间的IMU数据变成一个连接关键帧状态$x_i,x_j$的因子。更具体地说，优化器每轮改变的是$x_i$和$x_j$，而$\mathcal I_{ij}$保持不变；所以$r_{\mathrm{imu},ij}$必须能够快速完成下面的比较：
 \[
 \begin{array}{c|c}
@@ -2185,15 +2035,16 @@ G_k=
 
 \subsection{残差来自流形上的比较映射}
 
-定义相对导航状态之间的局部比较映射
+沿用上一章“预测在前、测量在后”的顺序，定义相对导航状态之间的局部比较映射
 \[
-    \mathcal C:\mathcal N\times\mathcal N\to\R^9
+    \epsilon_{\mathrm{imu}}:
+    \mathcal N\times\mathcal N\to\R^9
 \]
 为
 \[
 \boxed{
-    \mathcal C\bigl(
-      (R_m,v_m,p_m),(R_s,v_s,p_s)
+    \epsilon_{\mathrm{imu}}\bigl(
+      (R_s,v_s,p_s),(R_m,v_m,p_m)
     \bigr)
     :=
     \begin{bmatrix}
@@ -2203,9 +2054,9 @@ G_k=
     \end{bmatrix}.
 }
 \]
-下标$m$表示预积分测量，$s$表示由当前状态给出的相对预测。两者一致时，比较映射落在零向量：
+下标$s$表示由当前状态给出的相对预测，$m$表示预积分测量。两者一致时，比较映射落在零向量：
 \[
-    \mathcal C(z,z)=0.
+    \epsilon_{\mathrm{imu}}(z,z)=0.
 \]
 
 再定义端点状态的相对化映射
@@ -2216,13 +2067,13 @@ G_k=
 \[
 \boxed{
     r_{Rvp}
-    =\mathcal C\left(
-      \Delta_{ij}^{\mathrm{corr}},
-      \Pi_{ij}(x_i,x_j)
+    =\epsilon_{\mathrm{imu}}\left(
+      \Pi_{ij}(x_i,x_j),
+      \Delta_{ij}^{\mathrm{corr}}
     \right).
 }
 \]
-后面常见的三条残差公式，只是把$\Pi_{ij}$和$\mathcal C$展开后的坐标表达。若把旋转误差改成$\Log(R_s^{-1}R_m)$，零误差集合没有改变，但比较映射、Jacobian和协方差坐标都改变，不能只替换$\Log$内部的乘法顺序。
+后面常见的三条残差公式，只是把$\Pi_{ij}$和$\epsilon_{\mathrm{imu}}$展开后的坐标表达。若把旋转误差改成$\Log(R_s^{-1}R_m)$，零误差集合没有改变，但比较映射、Jacobian和协方差坐标都改变，不能只替换$\Log$内部的乘法顺序。
 
 \subsection{状态预测的三个相对量}
 
@@ -2555,7 +2406,7 @@ p(x_j\mid x_i,\mathcal I_{ij})\ \to\
     \item \textbf{离散递推是什么？}它是所选数值积分器定义的一步相对运动映射。名义量、bias Jacobian和噪声传播矩阵必须来自同一个一步映射，不能从不同积分器拼接。
     \item \textbf{bias Jacobian是什么？}它是$d\mathcal P_{ij}|_{\bar b}$经过输出切空间平凡化后的矩阵表示，用来处理线性化点附近的小bias更新，而不是无限有效的精确修正。
     \item \textbf{协方差描述什么？}它描述$T_{\bar\Delta_{ij}}\mathcal N$中随机局部误差的二阶矩。$F_k$和$G_k$分别是一步映射对旧误差和新噪声的微分坐标，$\Sigma^{-1}$则把该不确定性转成因子的信息二次型。
-    \item \textbf{因子残差比较什么？}比较映射$\mathcal C$把状态给出的相对运动与bias修正后的预积分测量送到零点附近的局部坐标；旋转使用$\Log$，速度和位置在同一个$B_i$中相减。
+    \item \textbf{因子残差比较什么？}比较映射$\epsilon_{\mathrm{imu}}$把状态给出的相对运动与bias修正后的预积分测量送到零点附近的局部坐标；旋转使用$\Log$，速度和位置在同一个$B_i$中相减。
 \end{enumerate}
 
 因此，预积分不是一组互不相关的工程公式。它的对象链是
@@ -2587,7 +2438,7 @@ p(x_j\mid x_i,\mathcal I_{ij})\ \to\
     =\mathcal A_{x_i,\Delta t_{ij}}
       \bigl(\mathcal P_{j,i}(u;\bar b,0)\bigr).
 \]
-$\mathcal P_{j,i}(u;\bar b,0)$给出名义相对流终点，$d\mathcal P_{j,i}$给出bias与噪声的一阶传播，比较映射$\mathcal C$把该终点与状态端点关系转换成优化残差。
+$\mathcal P_{j,i}(u;\bar b,0)$给出名义相对流终点，$d\mathcal P_{j,i}$给出bias与噪声的一阶传播，比较映射$\epsilon_{\mathrm{imu}}$把该终点与状态端点关系转换成优化残差。
 
 \subsection*{第一步：由估计目标确定要构造的对象}
 
