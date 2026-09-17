@@ -2,8 +2,6 @@
 
 本书从集合、拓扑、微分几何与李群建立状态空间和局部扰动的语言，再从测度论走向概率建模，完整推导 ESKF 与 IMU 预积分。
 
-本仓库是《SLAM数学直观笔记》的发布仓库，只包含这一本书。目录保留了其在源工作空间中的位置，因此 `books/slam-geometry/main.tex` 可以通过 `../../shared/latex/` 找到共享的 ElegantBook 文档类。
-
 ## 当前章节
 
 | 章 | 标题 | 内容 |
@@ -22,40 +20,25 @@
 
 ## 目录
 
-```text
-.
-├── books/
-│   └── slam-geometry/
-│       ├── main.tex            # 书籍入口、封面与章节顺序
-│       ├── chapters/           # 前言与正文
-│       ├── style/newcommand.tex  # 本书符号与数学命令
-│       └── assets/             # 封面与插图
-├── shared/
-│   └── latex/                  # ElegantBook 文档类与排版基础设施
-└── Makefile
-```
+- `main.tex`：书籍入口、封面与章节顺序。
+- `chapters/`：正文和前言。
+- `style/newcommand.tex`：本书符号与数学命令。
+- `assets/images/`：正文引用的封面与插图。
+- `assets/ai-images/`：尚未正式采用的AI生成素材。
+- `build/`：编译产物。
 
 ## 编译
 
-需要 XeLaTeX 与 `latexmk`（TeX Live 2022 或更新），中文依赖 Fandol 字体，参考文献由 `biber` 处理。
-
-在仓库根目录运行：
+从工作空间根目录运行：
 
 ```bash
 make slam-geometry
 ```
 
-或进入书籍目录运行：
+或在本目录运行：
 
 ```bash
-cd books/slam-geometry
 latexmk -pdfxe -outdir=build main.tex
 ```
 
-两种方式输出均为 `books/slam-geometry/build/main.pdf`。
-
-清理编译产物：
-
-```bash
-make clean
-```
+输出为 `build/main.pdf`。
