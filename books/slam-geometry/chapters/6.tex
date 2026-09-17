@@ -2,318 +2,534 @@
 \label{chap:measure-foundations}
 \label{chap:probability-geometry}
 
-前几章已经说明状态可以属于怎样的空间，以及空间中的点怎样连续变化。现在再问一个问题：如果真实状态还不知道，怎样描述它落在某个区域中的可能性？回答之前，需要先弄清楚哪些区域可以讨论、哪些映射能够把这些区域联系起来，以及怎样给区域赋予大小。
+前五章逐步建立了集合、空间、坐标和局部变化的语言。现在考虑另一个问题：一个区域有多大？在实数轴上，我们会量区间的长度；在平面上，会量区域的面积；面对不确定的结果，又会问它落在某个区域中的概率。它们测量的内容不同，却都在做一件事：给集合赋予一个非负的数。
 
-本章按下面的顺序建立这些对象：
+不过，给集合赋值之前，还有两个问题需要分清。第一，准备对哪些集合赋值？第二，一个函数把输入变成输出后，输出端的区域怎样与输入端的区域联系起来？本章先把这些问题讲清，再引入测度。可以把主线记为
 \[
-\begin{aligned}
-\text{集合及其运算}&\longrightarrow\text{集合系与可测空间}
-\longrightarrow\text{可测映射与可测函数}\\
-&\longrightarrow\text{测度、外测度与积分}
-\longrightarrow\text{概率空间与随机变量}.
-\end{aligned}
+ \text{点属于哪些集合}
+ \longrightarrow\text{哪些集合允许一起讨论}
+ \longrightarrow\text{函数怎样联系这些集合}
 \]
-这条顺序先建立可以使用的语言，再赋予数量。可测性本身不指定概率；测度也不要求总质量等于一。概率是测度的一种特殊情形，期望则是对概率测度的积分。章末只用几个SLAM例子对照这些概念，具体的误差状态滤波留到第七章。
+\[
+ \longrightarrow\text{给集合赋予大小}
+ \longrightarrow\text{对函数积分与计算概率}.
+\]
+这里的集合首先可以是实数轴上的区间，不必一开始就想成复杂的机器人状态空间。等这些操作看得见、算得出以后，章末再用少量SLAM例子作对照。
 
-\section{集合运算与集合序列的极限}
+\section{集合运算：先固定一个点，看它是否留下}
 
-\subsection{用指示函数记录集合}
+\subsection{集合、集合系与点是三类对象}
 
-固定一个集合$X$，本章所有补集都相对于当前全空间取。对$A\subseteq X$，定义
+固定全空间$X$。例如取$X=\mathbb R$，其中一个点可以是$x=2$，一个子集可以是$A=(0,3]$，而
 \[
-    \mathbf 1_A(x)=
-    \begin{cases}1,&x\in A,\\0,&x\notin A.\end{cases}
+ \mathcal C=\{(a,b]:a,b\in\mathbb R,\ a<b\}\cup\{\varnothing\}
 \]
-它把“点是否属于集合”的判断编码成一个实值函数。第一章介绍过的交、并、补，在这里分别对应AND、OR和NOT；指示函数满足
+是由许多子集组成的集合系。于是
 \[
-\begin{aligned}
-\mathbf 1_{A^c}&=1-\mathbf 1_A,\qquad
-\mathbf 1_{A\cap B}=\mathbf 1_A\mathbf 1_B,\\
-\mathbf 1_{A\cup B}&=\mathbf 1_A+\mathbf 1_B-\mathbf 1_{A\cap B}.
-\end{aligned}
+ x\in A,\qquad A\in\mathcal C,\qquad
+ \mathcal C\subseteq\mathcal P(X)
 \]
-其中相交部分必须扣除一次，否则它会被重复计数。对称差
-\[
-    A\mathbin\triangle B=(A\setminus B)\cup(B\setminus A)
-\]
-记录恰好属于其中一个集合的点。
+表达三个不同层次的关系。$\mathcal C$的元素是集合；“对集合做运算后仍留在$\mathcal C$内”，说的就是集合系的封闭性。后面半环、环、代数等名称，都在规定这一层的运算规则。
 
-对于集合族$\{A_t:t\in I\}$，并与交中的量词分别是
+\subsection{指示函数就是一个集合对应的开关}
+
+对$A\subseteq X$，定义
 \[
- x\in\bigcup_{t\in I}A_t\iff\exists t\in I:\ x\in A_t,
- \qquad
- x\in\bigcap_{t\in I}A_t\iff\forall t\in I:\ x\in A_t.
+ I_A(x)=\begin{cases}1,&x\in A,\\0,&x\notin A.\end{cases}
 \]
-因此De Morgan律就是把逻辑否定穿过量词：
+想象一个输入为$x$的开关：点进入$A$就亮灯，离开$A$就灭灯。这样，一个集合变成了一个只有两个输出值的函数；知道所有点的开关状态，也就知道了这个集合。
+
+固定同一个$x$，交集要求两个开关同时亮，补集则把亮和灭交换。因此
+\[
+ I_{A\cap B}(x)=I_A(x)I_B(x),\qquad
+ I_{A^c}(x)=1-I_A(x).
+\]
+并集要求至少一个开关亮。若直接把两个开关相加，交集上的点会得到$2$，所以要把多算的一次扣掉：
+\[
+ I_{A\cup B}=I_A+I_B-I_{A\cap B}.
+\]
+这些等式可以逐点检查，不需要先记忆公式。交、并、补分别对应逻辑中的AND、OR、NOT。
+
+\begin{bookexample}{差集与对称差留下哪些点}
+取$A=(0,3]$、$B=(2,4]$。在$A\setminus B$中，我们先要求点在$A$，再排除所有在$B$中的点，得到$(0,2]$。对称差
+\[
+ A\triangle B=(A\setminus B)\cup(B\setminus A)
+             =(0,2]\cup(3,4]
+\]
+则留下恰好属于一个集合的点。点$2$属于$A$而不属于$B$，所以留下；点$3$同时属于二者，所以被排除。判断端点是否留下，仍然只需回到归属条件。
+\end{bookexample}
+
+\subsection{并与交中的量词}
+
+对集合族$\{A_t:t\in J\}$，
+\[
+ x\in\bigcup_{t\in J}A_t
+ \iff\text{存在一个$t$使$x\in A_t$},
+\]
+\[
+ x\in\bigcap_{t\in J}A_t
+ \iff\text{每个$t$都满足$x\in A_t$}.
+\]
+所以，点不在并集中，就意味着它不在任何一个集合中；点不在交集中，则只需要它至少缺席一个集合。逐点翻译这两句话就得到De Morgan律：
 \[
  \left(\bigcup_t A_t\right)^c=\bigcap_t A_t^c,
  \qquad
  \left(\bigcap_t A_t\right)^c=\bigcup_t A_t^c.
 \]
-后面把函数不等式改写成集合运算时，会反复使用这些关系。
+本章所有补集都相对于当前全空间取。后面遇到函数的不等式，依然可以先读成对每个输入点的逻辑判断。
 
-\subsection{单调集合序列}
+\section{集合序列的极限：一直出现与反复出现}
 
-若$A_n\subseteq A_{n+1}$，记$A_n\uparrow A$，其中
+\subsection{递增与递减时，点的归属怎样变化}
+
+若$A_1\subseteq A_2\subseteq\cdots$，一个点一旦被纳入，以后就不会离开。最终纳入的全部点组成
 \[
- A=\bigcup_{n=1}^{\infty}A_n.
+ A=\bigcup_{n=1}^{\infty}A_n,\qquad A_n\uparrow A.
 \]
-这个极限包含所有最终被纳入的点。若$A_{n+1}\subseteq A_n$，则记$A_n\downarrow A$，其中
+若$A_1\supseteq A_2\supseteq\cdots$，一个点一旦被排除，以后就不会回来。始终留下的点组成
 \[
- A=\bigcap_{n=1}^{\infty}A_n.
+ A=\bigcap_{n=1}^{\infty}A_n,\qquad A_n\downarrow A.
 \]
-这个极限只保留一直没有被排除的点。例如$[0,1-1/n]\uparrow[0,1)$，而$[-1/n,1/n]\downarrow\{0\}$。集合极限讨论的是点的归属，不能只凭区间端点趋向哪里就判断开闭性。
+例如$[0,1-1/n]\uparrow[0,1)$。虽然右端点趋近$1$，点$1$却从未被纳入，所以极限集合不含$1$。再看$[-1/n,1/n]\downarrow\{0\}$：每个非零点最终都会被排除，只有$0$一直留下。
 
-\subsection{上极限与下极限}
+\subsection{用一列开关状态理解上下极限}
 
-一般序列不必单调。先取从第$n$项开始的尾部交集、尾部并集，再令$n$增大：
+一般的$A_n$可能时大时小。固定一个点$x$，只记录
+\[
+ I_{A_1}(x),I_{A_2}(x),I_{A_3}(x),\ldots
+\]
+这列$0$与$1$。它至少有以下几种典型情况：
+\begin{center}
+\begin{tabular}{c|c|c|c}
+归属记录 & 最终一直出现 & 出现无穷多次 & 归属是否稳定\\\hline
+$0,1,0,1,1,1,\ldots$（以后全为$1$）& 是 & 是 & 是\\
+$1,0,1,0,1,0,\ldots$ & 否 & 是 & 否\\
+$1,1,0,0,0,0,\ldots$ & 否 & 否 & 是
+\end{tabular}
+\end{center}
+下极限收集“从某一项以后一直出现”的点，上极限收集“无论往后看多远，还会再出现”的点。两者的差别在于，反复出现允许中途缺席。
+
+先固定起始序号$N$。$\bigcap_{n\geq N}A_n$表示从第$N$项起一直出现；允许选择一个合适的$N$，就得到
+\[
+ \boxed{\liminf_{n\to\infty}A_n
+       =\bigcup_{N=1}^{\infty}\bigcap_{n\geq N}A_n.}
+\]
+类似地，$\bigcup_{n\geq N}A_n$表示第$N$项以后至少还出现一次；要求每个$N$都如此，得到
+\[
+ \boxed{\limsup_{n\to\infty}A_n
+       =\bigcap_{N=1}^{\infty}\bigcup_{n\geq N}A_n.}
+\]
+因此公式中的外层并对应“存在$N$”，外层交对应“对所有$N$”：
 \[
 \begin{aligned}
-\liminf_{n\to\infty}A_n
- &=\bigcup_{n=1}^{\infty}\bigcap_{k=n}^{\infty}A_k,\\
-\limsup_{n\to\infty}A_n
- &=\bigcap_{n=1}^{\infty}\bigcup_{k=n}^{\infty}A_k.
+ x\in\liminf A_n&\iff\exists N\ \forall n\geq N:\ x\in A_n,\\
+ x\in\limsup A_n&\iff\forall N\ \exists n\geq N:\ x\in A_n.
 \end{aligned}
 \]
-下极限中的点从某一项起一直属于$A_n$；上极限中的点属于无穷多个$A_n$。写出量词便能分清：
+最终一直出现必然会出现无穷多次，所以$\liminf A_n\subseteq\limsup A_n$。二者相等时，才称共同集合为集合序列的极限。
+
+\begin{bookexample}{交替出现的两个区域}
+令奇数项为$A=(0,2)$，偶数项为$B=(1,3)$。点$1.5$每次都出现；点$0.5$和$2.5$只在其中一半的时刻出现。因此
 \[
-\begin{aligned}
-x\in\liminf A_n&\iff\exists N\ \forall n\ge N:\ x\in A_n,\\
-x\in\limsup A_n&\iff\forall N\ \exists n\ge N:\ x\in A_n.
-\end{aligned}
+ \liminf A_n=A\cap B=(1,2),\qquad
+ \limsup A_n=A\cup B=(0,3).
 \]
-所以$\liminf A_n\subseteq\limsup A_n$。两者相等时才把共同集合称为$A_n$的极限。若$A_n$交替等于两个不交的非空集合$A,B$，则下极限为空，上极限为$A\cup B$，极限不存在。
+这列集合没有极限。若先画出一个点的开关记录，再判断其归属，便不会把“出现无穷多次”误读成“最终一直出现”。
+\end{bookexample}
 
-从指示函数看，这些定义与数列的上下极限一致：
+逐点使用数列的上下极限，还得到
 \[
- \mathbf 1_{\liminf A_n}=\liminf_n\mathbf 1_{A_n},
- \qquad
- \mathbf 1_{\limsup A_n}=\limsup_n\mathbf 1_{A_n}.
+ I_{\liminf A_n}=\liminf_n I_{A_n},\qquad
+ I_{\limsup A_n}=\limsup_n I_{A_n}.
 \]
-这已经提示了后面的构造方法：先讨论集合，再把结论翻译成函数语言。
+集合语言与函数语言在这里第一次通过极限联系起来。
 
-\section{从集合系到\texorpdfstring{$\sigma$}{sigma}代数}
+\section{集合系：每增加一种封闭运算，能多做什么}
 
-\subsection{封闭运算规定了什么}
+\subsection{从区间出发理解交与切分}
 
-集合系是$\mathcal P(X)$的一个子集，它的元素仍然是集合。要求集合系对某种运算封闭，表示从其中已有的集合出发做这种运算，结果仍在集合系中。以下约定各集合系非空。
+仍取全空间$X=\mathbb R$，考虑所有有界半开区间$(a,b]$连同空集。两个这样的区间相交，结果仍是同类区间或空集。例如
+\[
+ (0,3]\cap(2,4]=(2,3].
+\]
+这说明集合系对有限交封闭。非空集合系具有这个性质时，称为$\pi$系。
 
-\begin{definition}[几种常用集合系]
-\begin{enumerate}
-\item $\pi$系：对有限交封闭，即$A,B\in\mathcal C\Rightarrow A\cap B\in\mathcal C$。
-\item 半环：含$\varnothing$，对有限交封闭，且任意$A\setminus B$能写成有限个两两不交的本系集合之并。
-\item 环：对有限并与差封闭。它因而也含空集，并对有限交、对称差封闭。
-\item 代数（也称集合域）：是包含全空间$X$的环；等价地，含$X$并对补集与有限并封闭。
-\item $\sigma$代数（也称$\sigma$域）：含$X$，对补集和可数并封闭。
-\end{enumerate}
+但是，切掉中间一段后，剩下的部分可能不再是一个区间：
+\[
+ (0,5]\setminus(1,3]=(0,1]\sqcup(3,5].
+\]
+这里$\sqcup$强调两段互不相交。单个区间的形式没有保住，却保住了“有限块同类集合拼起来”的形式。这正是半环定义要表达的能力。
+
+\begin{definition}[半环]
+集合系$\mathcal S$若包含$\varnothing$，对有限交封闭，并且每个$A\setminus B$（$A,B\in\mathcal S$）都能写成有限个两两不交的$\mathcal S$中集合的并，就称为半环。
 \end{definition}
 
-例如$\mathbb R$中的有界半开区间$(a,b]$连同空集组成半环。两个这样的区间之差可能分成两段，因而通常不再是单个区间。允许有限个互不相交的半开区间之并，便得到一个环；这个环不包含整个$\mathbb R$。
+半环不要求差集本身仍在集合系里，而允许把差集切成有限块。这使区间、矩形盒等基本测量单元很适合从半环开始：交叠部分可以找出，剩余部分也能分块计算。
 
-把有限运算提升到可数运算，是$\sigma$代数相对于代数增加的能力。由De Morgan律，$\sigma$代数也对可数交封闭，因而对集合序列的上下极限封闭。
+\begin{center}
+\begin{tikzpicture}[x=1.4cm,y=1cm,>=stealth]
+ \draw[->] (-.25,0)--(5.45,0);
+ \draw[line width=2pt,main] (0,0.45)--(5,0.45);
+ \draw[line width=2pt,red] (1,0.85)--(3,0.85);
+ \draw[line width=2pt,main] (0,-0.5)--(1,-0.5);
+ \draw[line width=2pt,main] (3,-0.5)--(5,-0.5);
+ \foreach \x in {0,1,3,5}{\draw (\x,.05)--(\x,-.05) node[below] {$\x$};}
+ \node[right] at (5.1,.45) {$A$};
+ \node[right] at (3.1,.85) {$B$};
+ \node[right] at (5.1,-.5) {$A\setminus B$};
+\end{tikzpicture}
+\end{center}
+图只表示切分的位置，端点是否包含由上面的半开区间公式规定。
 
-这些定义给出如下蕴含关系：
+\subsection{允许有限拼接后，得到集合环}
+
+既然一个区间不够容纳差集，就允许有限个互不相交的有界半开区间之并。现在对两个这样的集合取并或取差，仍能整理为有限个同类区间的并。
+
+\begin{definition}[集合环与集合代数]
+非空集合系$\mathcal R$若对有限并与差封闭，称为集合环。包含全空间$X$的集合环称为集合代数，也称集合域。
+\end{definition}
+
+环中自动有空集，因为$A\setminus A=\varnothing$；也自动对交封闭，因为
+\[
+ A\cap B=A\setminus(A\setminus B).
+\]
+但是，上述有界区间有限并形成的环不含整个$\mathbb R$，也就不能保证$\mathbb R\setminus A$仍在其中。要求加入全空间以后，补运算才由差运算得到：$A^c=X\setminus A$。这就是从环到代数所增加的内容。
+
+也可以直接把代数定义为：含$X$，并对补集和有限并封闭。两种定义等价，因为$A\setminus B=A\cap B^c$，交又能用De Morgan律写成补与并。
+
+\subsection{为什么还要允许可数运算}
+
+有限次拼接只解决有限操作。第二节中的集合极限已经涉及可数并、可数交。如果希望这种极限仍在允许讨论的集合范围内，就需要更强的封闭性。
+
+\begin{definition}[$\sigma$代数]
+$X$上的集合系$\mathcal F$若满足
+\[
+ X\in\mathcal F,\qquad
+ A\in\mathcal F\Rightarrow A^c\in\mathcal F,
+\]
+以及
+\[
+ A_1,A_2,\ldots\in\mathcal F
+ \Rightarrow\bigcup_{n=1}^{\infty}A_n\in\mathcal F,
+\]
+就称为$\sigma$代数，也称$\sigma$域。
+\end{definition}
+
+由补与可数并，可以得到可数交；再看上下极限的表达式，就知道它们也留在$\mathcal F$中。这里强调的是可数操作，定义没有要求对任意不可数并封闭。
+
+将这些条件从强到弱排列，有
 \[
  \sigma\text{代数}\Longrightarrow\text{代数}
  \Longrightarrow\text{环}\Longrightarrow\text{半环}
  \Longrightarrow\pi\text{系}.
 \]
-箭头表示一种集合系满足更弱的定义，不表示某个具体集合属于另一个集合。
+读箭头时应说“每个集合环也满足半环的条件”，而不是“某个集合属于半环这个集合”。被比较的是集合系所具有的性质。
 
-\subsection{单调类与\texorpdfstring{$\lambda$}{lambda}系}
+\subsection{集合环与代数中的环怎样对应}
 
-\begin{definition}[单调类与$\lambda$系]
-单调类是对递增并和递减交封闭的集合系。$\lambda$系（Dynkin系）含$X$，对补集和可数个两两不交集合的并封闭。
-\end{definition}
+第一章中的环有加法与乘法。集合环也可以这样看，但需要先规定运算：
+\[
+ A+B:=A\triangle B,\qquad A\cdot B:=A\cap B.
+\]
+为什么加法选择对称差？对同一个集合加两次，每个点都被切换两次，回到未选中的状态：$A\triangle A=\varnothing$。因此加法零元为$\varnothing$，每个集合都是自己的加法逆元。
 
-$\lambda$系中，若$A\subseteq B$，则$B\setminus A$仍在本系中；把递增序列分成不交增量，就能证明它对递增并封闭，再取补集得到递减交封闭。因此$\lambda$系是单调类。不过，它一般不对任意两个集合的交封闭。
+从指示函数看，对称差对应模$2$的加法，交对应$0,1$的乘法。逐点计算就能理解交换律、结合律和分配律。这样的环称为布尔环。若集合系含$X$，则$A\cap X=A$，所以$X$是乘法单位元。
 
-$\sigma$代数既是$\pi$系又是$\lambda$系；反过来，同时为$\pi$系与$\lambda$系的集合系是$\sigma$代数。另一种判别是：一个集合代数若还是单调类，就是$\sigma$代数。这里不能去掉“代数”条件，把任意单调类都当成$\sigma$代数。
+“集合域”在这里表示集合代数。它通常不是第一章代数学意义下的域：若$A\ne X$，无论取哪个$B$，$A\cap B\subseteq A$，都不可能等于$X$，因而$A$没有这样的乘法逆元。同一个名称需要放回各自定义中理解。
 
-\begin{remark}[集合环为什么也叫环]
-在集合环$\mathcal R$上定义$A+B:=A\triangle B$、$A\cdot B:=A\cap B$，得到一个布尔环。加法零元是$\varnothing$，每个元素满足$A+A=\varnothing$，乘法满足$A\cdot A=A$。若$X\in\mathcal R$，则$X$是乘法单位元。这里“集合域”的标准含义是集合代数，不能据此把它当成代数学中的数域；一般集合也没有关于交运算的乘法逆元。
-\end{remark}
+\section{生成的集合系：把已有集合补到足够封闭}
 
-\section{生成的\texorpdfstring{$\sigma$}{sigma}代数与Borel集}
+\subsection{先在四个点上实际补一次}
 
-\subsection{最小的封闭容器}
+取$X=\{1,2,3,4\}$，一开始只想讨论$A=\{1,2\}$。如果要求组成$\sigma$代数，就必须同时加入全空间、空集和补集：
+\[
+ \varnothing,\qquad \{1,2\},\qquad \{3,4\},\qquad X.
+\]
+对这四个集合任意取补、取可数并，都不会产生新的集合。所以
+\[
+ \sigma(\{A\})=\{\varnothing,A,A^c,X\}.
+\]
+这里没有凭空加入$\{1\}$：从已有条件无法把$1$与$2$分开。若再加入$B=\{2,3\}$，则
+\[
+ A\cap B=\{2\},\quad A\setminus B=\{1\},\quad
+ B\setminus A=\{3\},\quad(A\cup B)^c=\{4\}.
+\]
+四个单点都出现了，再取并就得到$\mathcal P(X)$。生成的集合系由初始集合决定；加入新的区分能力，可能使它变大。
 
-给定集合族$\mathcal C\subseteq\mathcal P(X)$，包含它的$\sigma$代数总存在，因为$\mathcal P(X)$就是一个。定义
+\subsection{最小封闭容器的严格定义}
+
+现在把刚才的补全过程写成定义。给定$\mathcal C\subseteq\mathcal P(X)$，包含它的$\sigma$代数至少有一个，即$\mathcal P(X)$。定义
 \[
  \sigma(\mathcal C)
- :=\bigcap\{\mathcal F:\mathcal F\text{是}X\text{上包含}\mathcal C
+ =\bigcap\{\mathcal F:\mathcal F\text{是包含}\mathcal C
                   \text{的}\sigma\text{代数}\}.
 \]
-任意族$\sigma$代数的交仍然是$\sigma$代数，所以这个定义确实给出包含$\mathcal C$的最小$\sigma$代数。“最小”是集合包含关系下的最小，不是元素个数最少的某种近似选择。
+交集只留下所有这些容器都不得不包含的集合。为什么交完仍是$\sigma$代数？$X$在每个容器中；若$A$在每个容器中，其补集也都在；若每个$A_n$都在每个容器中，它们的可数并也都在。三个条件逐一保留。
 
-若已经有$\mathcal C\subseteq\mathcal F$且$\mathcal F$是$\sigma$代数，就自动有$\sigma(\mathcal C)\subseteq\mathcal F$。许多可测性证明都利用这一点：先检查一组生成元，不必逐个检查所有可测集。
+因此$\sigma(\mathcal C)$确实是包含$\mathcal C$的最小$\sigma$代数。这里的“最小”指包含关系：任何已经封闭且包含$\mathcal C$的集合系，都必须包含$\sigma(\mathcal C)$。
 
-\subsection{拓扑提供Borel集合}
+\begin{definition}[可测空间]
+集合$X$连同其上的$\sigma$代数$\mathcal F$称为可测空间$(X,\mathcal F)$，$\mathcal F$中的集合称为可测集。
+\end{definition}
 
-对拓扑空间$(X,\tau)$，定义
+这一步只确定了讨论范围。四点例子中的$A$可以被赋予不同大小或不同概率，可测空间本身尚未作出这种选择。
+
+\subsection{从拓扑中的开集得到Borel集}
+
+前面几章已经有拓扑空间$(X,\tau)$。拓扑提供开集，于是可以取
 \[
- \mathcal B(X):=\sigma(\tau).
+ \mathcal B(X):=\sigma(\tau),
 \]
-它是由全部开集生成的Borel $\sigma$代数。开集与闭集都是Borel集，但Borel集还包含反复使用可数交、并、补所得到的更多集合。拓扑决定怎样谈邻近与连续；Borel结构让这些几何区域进入可测性讨论。
+称为Borel $\sigma$代数。开集全部可测，闭集通过取补也可测，再继续允许可数交、并、补。
 
-在$\mathbb R$上，开区间、半开区间、开射线都能生成同一个$\mathcal B(\mathbb R)$。例如
+在实数轴上，只用开射线$(-\infty,a)$就足够生成$\mathcal B(\mathbb R)$。先观察
+\[
+ (-\infty,a]=\bigcap_{n=1}^{\infty}(-\infty,a+1/n),
+\]
+再取差得到
+\[
+ (a,b)=(-\infty,b)\setminus(-\infty,a].
+\]
+这样所有开区间都能得到。每个实数开集又能写成包含于其中的有理端点开区间的并，而这样的区间只有可数多个，所以所有开集都被生成。反方向上，开射线本来就是开集，故
 \[
  \mathcal B(\mathbb R)=\sigma\{(-\infty,a):a\in\mathbb R\}.
 \]
-原因是开射线可生成闭射线和开区间，而每个实数开集都能写成可数个有理端点开区间的并。这个可数性是关键，$\sigma$代数并不要求对任意不可数并封闭。
+这个结论稍后会把“检查所有输出区域”简化成“检查所有阈值”。
 
-\subsection{生成元如何帮助证明}
+\subsection{单调类与\texorpdfstring{$\lambda$}{lambda}系：为推广结论准备的工具}
 
-后面常用的两个工具可表述为：若$\mathcal C$是$\pi$系，则包含它的最小$\lambda$系等于$\sigma(\mathcal C)$；若$\mathcal A$是代数，则包含它的最小单调类等于$\sigma(\mathcal A)$。分别称为$\pi$--$\lambda$定理和单调类定理。
+有时容易证明某个性质在递增极限下保持，却不容易直接验证任意可数并。于是把封闭要求拆开考虑。单调类是对递增并与递减交封闭的集合系；$\lambda$系要求含$X$、对补封闭、对可数个两两不交集合的并封闭。
 
-使用时，先把“满足某个性质的集合”收集成一个集合系，验证它具有相应封闭性，再检查生成元。这样，一个关于少数简单集合的结论便能推广到整个$\sigma$代数。本章主要使用这一思路，不展开这两个定理的完整证明。
-
-\begin{definition}[可测空间]
-集合$X$与其上的$\sigma$代数$\mathcal F$组成可测空间$(X,\mathcal F)$。此时只选定了允许讨论的集合，还没有给它们赋予大小或概率。
-\end{definition}
-
-\section{可测映射与原像}
-
-\subsection{为什么从输出集合往回找}
-
-给定$f:X\to Y$和$B\subseteq Y$，原像
+$\lambda$系为什么也能处理递增序列？若$A\subseteq B$都在其中，则$B^c$与$A$不交，从而
 \[
- f^{-1}(B)=\{x\in X:f(x)\in B\}
+ B\setminus A=(B^c\cup A)^c
 \]
-收集所有使输出落入$B$的输入。这个记号不要求$f$可逆：即使多个输入产生同一输出，或者某个输出没有对应输入，原像仍然有定义。
+仍在其中。对$A_n\uparrow A$，把新增部分写成
+\[
+ D_1=A_1,\qquad D_n=A_n\setminus A_{n-1},
+\]
+就有$A=\bigsqcup_nD_n$。取不交并便得到$A$，取补又能处理递减序列。
 
-原像与集合运算相容：
+记$r(\mathcal C),m(\mathcal C),\lambda(\mathcal C)$分别为包含$\mathcal C$的最小环、最小单调类、最小$\lambda$系。它们与$\sigma(\mathcal C)$一样，都可以通过取所有合格容器的交定义。常用的两个推广结论是
+\[
+ \mathcal C\text{为}\pi\text{系}\Rightarrow
+       \lambda(\mathcal C)=\sigma(\mathcal C),
+\]
+\[
+ \mathcal A\text{为代数}\Rightarrow
+       m(\mathcal A)=\sigma(\mathcal A).
+\]
+它们分别称为$\pi$--$\lambda$定理和单调类定理。使用时先收集“具有待证性质的集合”，验证相应封闭性，再检查简单的生成元，就能把结论推广出去。本章保留这一工具的用途，不展开一般证明；尤其不能去掉第二式中“$\mathcal A$为代数”的条件。
+
+\section{可测映射：把输出端的问题拉回输入端}
+
+\subsection{先看一个阈值比较器}
+
+把$f$看作系统，输入$x$后得到输出$f(x)$，输出端再判断$f(x)<a$。所有让比较器回答“是”的输入组成一个集合：
+\[
+ \{f<a\}:=\{x\in X:f(x)<a\}.
+\]
+\begin{center}
+\begin{tikzpicture}[>=stealth]
+ \node (x) at (0,0) {输入$x$};
+ \node[draw,rounded corners] (f) at (2.3,0) {系统$f$};
+ \node (y) at (4.6,0) {输出$f(x)$};
+ \node[draw,rounded corners,align=center] (c) at (7.3,0) {阈值比较器\\$f(x)<a$？};
+ \draw[->] (x)--(f);\draw[->] (f)--(y);\draw[->] (y)--(c);
+ \node[align=center,text width=6cm] (set) at (3.5,-1.35) {使比较器回答“是”的所有输入：\\$\{f<a\}$};
+ \draw[->] (c.south)--(7.3,-1.35)--(set.east);
+\end{tikzpicture}
+\end{center}
+
+\begin{bookexample}{平方系统的输入接收区域}
+取$f(x)=x^2$，阈值$a=4$。输出小于$4$等价于$x^2<4$，因此
+\[
+ \{f<4\}=(-2,2).
+\]
+输出端的条件是一个区间$(-\infty,4)$，输入端对应另一个区间$(-2,2)$。若改问输出是否在$(1,4)$内，则输入为
+\[
+ (-2,-1)\cup(1,2).
+\]
+一个简单的输出区域，可以对应几个分开的输入区域。这正是原像要记录的内容。
+\end{bookexample}
+
+\subsection{原像不要求反函数存在}
+
+一般地，给定$f:X\to Y$及$B\subseteq Y$，定义
+\[
+ f^{-1}(B)=\{x\in X:f(x)\in B\}.
+\]
+这里的输入是集合$B$，结果是一个集合。平方函数在$\mathbb R$上并不一一对应，但刚才的原像仍然有确定含义。它不要求先选出一个反函数。
+
+逐点判断可以得到
 \[
 \begin{aligned}
-f^{-1}(Y)&=X,& f^{-1}(\varnothing)&=\varnothing,\\
-f^{-1}(B^c)&=(f^{-1}(B))^c,&
-f^{-1}\left(\bigcup_nB_n\right)&=\bigcup_nf^{-1}(B_n).
+ f^{-1}(Y)&=X,&f^{-1}(\varnothing)&=\varnothing,\\
+ f^{-1}(B^c)&=(f^{-1}(B))^c,&
+ f^{-1}\left(\bigcup_n B_n\right)&=\bigcup_n f^{-1}(B_n).
 \end{aligned}
 \]
-交集也满足同样的交换关系。这使原像特别适合联系两个$\sigma$代数。
+例如，$x$属于左边的最后一个原像，当且仅当$f(x)$至少属于一个$B_n$，也就是$x$至少属于一个$f^{-1}(B_n)$。同样可证原像与交运算交换。
 
 \begin{definition}[可测映射]
-映射$f:(X,\mathcal F)\to(Y,\mathcal G)$可测，是指每个$B\in\mathcal G$都满足$f^{-1}(B)\in\mathcal F$。
+$f:(X,\mathcal F)\to(Y,\mathcal G)$称为可测映射，如果对每个$B\in\mathcal G$，都有$f^{-1}(B)\in\mathcal F$。
 \end{definition}
 
-直观地说，输出端允许询问的区域，在输入端都对应一个允许询问的事件。可测性保证问题可以沿映射传递；它没有要求映射单射、满射或连续。
+读这个定义时，先固定输出端允许询问的区域$B$，再找出对应的全部输入，最后检查这些输入是否组成$\mathcal F$中的集合。可测性让两端允许提出的问题彼此相容，尚未给任何区域指定大小。
 
-若$\mathcal G=\sigma(\mathcal C)$，只需检查$f^{-1}(C)\in\mathcal F$对所有$C\in\mathcal C$成立。证明方法是注意
+若$\mathcal G=\sigma(\mathcal C)$，只检查生成元$C\in\mathcal C$就够了。理由是
 \[
- \{B\subseteq Y:f^{-1}(B)\in\mathcal F\}
+ \mathcal D=\{B\subseteq Y:f^{-1}(B)\in\mathcal F\}
 \]
-本身就是$Y$上的$\sigma$代数。两个可测映射的复合仍可测，因为$(g\circ f)^{-1}(C)=f^{-1}(g^{-1}(C))$。连续映射在定义域和值域的Borel结构下可测，则来自“开集的原像仍是开集”。
+由上述原像恒等式可知是$\sigma$代数；当它包含$\mathcal C$，也必包含$\sigma(\mathcal C)$。这就是“先检查简单集合，再推广”的一次具体使用。
 
-\subsection{阈值比较器的直观}
+\subsection{可测函数为什么可以用阈值判别}
 
-实值函数$f:X\to\mathbb R$可测，等价于对所有$a\in\mathbb R$，
+当输出是实数时，默认使用$\mathcal B(\mathbb R)$。由于开射线生成它，实值函数可测等价于
 \[
- \{f<a\}:=\{x:f(x)<a\}=f^{-1}(( -\infty,a))\in\mathcal F.
+ \{f<a\}\in\mathcal F\quad\text{对每个$a\in\mathbb R$成立}.
 \]
-把$f$看成一个系统，$a$看成输出比较器的阈值：
+改用$\leq,>,\geq$也得到等价判据。例如
 \[
- x\ \longmapsto\ f(x)\ \longmapsto\ \text{判断 }f(x)<a.
+ \{f\leq a\}=\bigcap_{n=1}^{\infty}\{f<a+1/n\}.
 \]
-集合$\{f<a\}$就是所有使比较器回答“是”的输入。补、交、并分别组合成NOT、AND、OR；可数交并让我们能够表达一整列判断的极限。
-
-判据中的$<$可以换成$\leq,>,\geq$。例如
+若$f(x)\leq a$，它小于每个$a+1/n$；若$f(x)>a$，总能选足够大的$n$让$a+1/n<f(x)$，所以这个点不会留在交集中。再用补集，有
 \[
- \{f\leq a\}=\bigcap_{n=1}^{\infty}\{f<a+1/n\},
- \qquad
- \{f>a\}=\{f\leq a\}^c.
+ \{f>a\}=\{f\leq a\}^c,\qquad
+ \{f\geq a\}=\{f<a\}^c.
 \]
-这也是Borel生成元发挥作用的具体例子。
+这里的NOT、AND、OR正对应补、交、并。可数集合运算使无限序列的阈值判断也能组合起来。
 
-\subsection{函数生成的信息}
+非负函数有时允许取$+\infty$，一般可测函数也可以取扩展实数值$[-\infty,+\infty]$。赋予扩展实数轴相应的Borel结构后，上述阈值判别仍然适用；后面会用它处理无界函数的逼近。
 
-记
+\subsection{复合函数与函数生成的信息}
+
+若$f:X\to Y$、$g:Y\to Z$都可测，则
 \[
- \sigma(f):=\{f^{-1}(B):B\in\mathcal B(\mathbb R)\}.
+ (g\circ f)^{-1}(C)=f^{-1}(g^{-1}(C)).
 \]
-这是使$f$可测的最小$\sigma$代数。它描述只知道$f(x)$时能够区分哪些输入事件。如果$f$是常函数，只能区分$X$与$\varnothing$；如果$f$把输入分成若干类别，$\sigma(f)$就能区分这些类别及其允许的组合，但不能凭输出继续区分类别内部的点。
+先把输出问题拉回$Y$，再拉回$X$，每一步都得到可测集，所以复合仍可测。连续映射在Borel结构下可测，也由生成元判别直接得到：开集的原像是开集。
 
-\section{可测函数怎样逐步构造}
-
-\subsection{先从指示函数开始}
-
-对$A\subseteq X$，直接计算
+对实值$f$，记
 \[
- \{\mathbf 1_A<a\}=
+ \sigma(f)=\{f^{-1}(B):B\in\mathcal B(\mathbb R)\}.
+\]
+它是使$f$可测的最小$\sigma$代数，表示只通过输出$f(x)$能够区分的输入事件。回到四点空间，若$f(1)=f(2)=0$、$f(3)=f(4)=1$，则
+\[
+ \sigma(f)=\{\varnothing,\{1,2\},\{3,4\},X\}.
+\]
+仅知道输出为$0$，能知道输入落在$\{1,2\}$，却无法继续区分$1$与$2$。这是可测结构与信息之间的一个具体联系。
+
+\section{从开关函数到一般可测函数}
+
+\subsection{先验证一个开关是可测函数}
+
+对$A\subseteq X$，把$I_A$接到阈值比较器上。因为输出只有$0$和$1$，分三段讨论阈值：
+\[
+ \{I_A<a\}=
  \begin{cases}
  \varnothing,&a\leq0,\\
  A^c,&0<a\leq1,\\
  X,&a>1.
  \end{cases}
 \]
-因此$A\in\mathcal F$时$\mathbf 1_A$可测；反过来，$A=\{\mathbf 1_A>1/2\}$，所以$\mathbf 1_A$可测也推出$A$可测。
+第二种情况中，输出$0$通过比较器，输出$1$不通过，因此留下的输入恰好是$A^c$。若$A\in\mathcal F$，三种结果都可测，所以$I_A$可测。反过来，$A=\{I_A>1/2\}$，故
 \[
- \boxed{A\text{可测}\iff\mathbf 1_A\text{可测}.}
+ \boxed{A\text{可测}\iff I_A\text{可测}.}
 \]
-集合与函数之间的这座桥，后面会同时用于可测性证明与积分定义。
+我们由此把关于集合的结论转成了关于函数的结论。
 
-\subsection{简单函数是有限个开关的组合}
+\subsection{简单函数：给有限个可测区域指定高度}
 
-取有限可测分割$X=A_1\sqcup\cdots\sqcup A_m$，并取实数$a_1,\ldots,a_m$。函数
+取可测分割$X=A_1\sqcup\cdots\sqcup A_m$，在第$k$块上指定高度$a_k\in\mathbb R$，得到
 \[
- s(x)=\sum_{k=1}^m a_k\mathbf 1_{A_k}(x)
+ s(x)=\sum_{k=1}^{m}a_kI_{A_k}(x).
 \]
-称为简单函数。它只取有限多个值，不要求每个$A_k$都是区间。若$a_k\geq0$，它就是非负简单函数。
+对于一个固定输入，只有它所在的那一块开关为$1$，所以输出正好是该块的高度。这类只取有限多个值的函数称为简单函数。一般有限值函数称为简单函数；当这些层集可测时，称为可测简单函数，以下讨论的都是这一情形。
 
-因为
+例如$X=[0,3)$，分别在$[0,1),[1,2),[2,3)$上取高度$1,3,2$，则阈值$2.5$留下
 \[
- \{s<a\}=\bigcup_{k:a_k<a}A_k,
+ \{s<2.5\}=[0,1)\cup[2,3).
 \]
-简单函数可测。若最初的表示用了相互重叠的集合，可以通过交与补将它们细分成互不相交的可测块，再得到上述分割表示。
+一般地，$\{s<a\}=\bigcup_{k:a_k<a}A_k$，所以可测简单函数的阈值集合是有限个可测块的并。注意“简单”说的是输出高度有限，不要求每块区域本身是区间。
 
-\subsection{从下方逼近非负可测函数}
+若表示式中的集合互相重叠，可以按各集合的交与补细分。每个小块上的所有开关状态都固定，输出也就固定，再合并相同高度的块，就得到上述分割形式。
 
-允许函数取扩展实数值$[0,\infty]$。对非负可测$f$，构造
+\subsection{用越来越细的阶梯从下方逼近}
+
+现在给定非负可测函数$f$。先暂时想成$0\leq f\leq2$，把高度按$1/2$分层：落在$[1,1.5)$的输出都压到$1$，落在$[1.5,2)$的输出都压到$1.5$。这样得到的阶梯不超过原函数。再把高度间隔缩成$1/4,1/8,\ldots$，阶梯就越来越贴近它。
+
+\begin{center}
+\begin{tikzpicture}[x=3cm,y=1.9cm,>=stealth]
+ \draw[->] (0,0)--(2.25,0) node[right] {$x$};
+ \draw[->] (0,0)--(0,2.25) node[above] {高度};
+ \draw[main,thick] (0,0)--(2,2) node[above left] {$f(x)=x$};
+ \draw[red,thick] (0,0)--(.5,0)--(.5,.5)--(1,.5)--(1,1)--(1.5,1)--(1.5,1.5)--(2,1.5);
+ \draw[blue,dashed,thick] (0,0)--(.25,0)--(.25,.25)--(.5,.25)--(.5,.5)--(.75,.5)--(.75,.75)--(1,.75)--(1,1)--(1.25,1)--(1.25,1.25)--(1.5,1.25)--(1.5,1.5)--(1.75,1.5)--(1.75,1.75)--(2,1.75);
+ \node[red,right] at (2.05,1.15) {间隔$1/2$};
+ \node[blue,right] at (2.05,.7) {间隔$1/4$};
+\end{tikzpicture}
+\end{center}
+图中的竖线表示阶梯的跳跃位置。对于一般函数，这些“层”对应的是$f$的原像集合，而不一定是横轴上连续的一段。
+
+无界函数还需要先截断高度。一个统一构造是
 \[
  s_n(x)=2^{-n}\left\lfloor2^n\min\{f(x),n\}\right\rfloor.
 \]
-先把高度截断在$n$，再把高度向下量化为$2^{-n}$的整数倍。每个$s_n$只有有限多个值，其水平集合由$f$的可测阈值集合得到，所以$s_n$是非负简单函数。而且
+按从内到外的顺序读：先把高于$n$的部分压到$n$；再以$2^{-n}$为一格向下取整。因此$s_n$只有有限个高度，其层集由$f$的阈值集合得到，确实是可测简单函数。
+
+为什么这些阶梯递增？当$n$增加时，截断上限提高；旧网格中的每个高度也是更细网格的一个高度，新的向下取整不会低于旧值。因此
 \[
- 0\leq s_n\leq s_{n+1}\leq f,\qquad s_n(x)\uparrow f(x).
+ 0\leq s_n\leq s_{n+1}\leq f.
 \]
-对$f(x)<\infty$的点，充分大的$n$不再截断它，量化误差小于$2^{-n}$；对$f(x)=\infty$的点，$s_n(x)=n\to\infty$。
+若$f(x)<\infty$，充分大的$n$不再截断这个点，且$0\leq f(x)-s_n(x)<2^{-n}$；若$f(x)=\infty$，则$s_n(x)=n$。两种情形都给出$s_n(x)\uparrow f(x)$。有界$f$在截断不再起作用后，误差界对所有点同时成立，因而还能得到一致收敛。
 
-若$f$有界，则在截断高度超过其上界后，量化误差在整个空间上都小于$2^{-n}$，于是得到一致收敛。无界函数通常只能保证逐点收敛，不能省略有界条件。
+\subsection{极限与正负部分把范围进一步扩大}
 
-反过来，非负简单函数的单调极限也可测。若$s_n\uparrow f$，则
+若$s_n\uparrow f$，则
 \[
- \{f>a\}=\bigcup_n\{s_n>a\},
- \qquad
- \{f\leq a\}=\bigcap_n\{s_n\leq a\}.
+ \{f>a\}=\bigcup_n\{s_n>a\}.
 \]
-这样，我们不但知道逼近存在，也看到了极限为什么留在可测函数的范围内。
+只要极限严格高于$a$，就有某一级阶梯高于$a$；反方向显然成立。这说明单调极限仍可测。对一般可测序列，先用
+\[
+ \{\sup_n f_n>a\}=\bigcup_n\{f_n>a\},\qquad
+ \{\inf_n f_n<a\}=\bigcup_n\{f_n<a\},
+\]
+再将上下极限写成上确界与下确界的复合，就得到$\liminf f_n,\limsup f_n$可测。逐点极限存在时，它们相等，所以极限函数也可测。
 
-\subsection{一般函数、运算与极限}
-
-对实值函数定义
+有正有负的函数可以拆成
 \[
  f^+=\max(f,0),\qquad f^-=\max(-f,0),\qquad
  f=f^+-f^-,\quad |f|=f^++f^-.
 \]
-可测实值函数的和、积、最大值、最小值仍可测；商在分母非零处可测。扩展实值函数也有相应结论，但必须先排除$\infty-\infty$等无定义运算。
+例如$f(x)=-3$时，$f^+(x)=0$、$f^-(x)=3$；负部记录负值的大小，本身仍然非负。于是只要掌握非负函数，就能分别处理两部分。
 
-若$f_n$可测，则$\sup_nf_n$与$\inf_nf_n$可测。例如
+有限实值可测函数的和、积、最大值、最小值仍可测。以和为例，
 \[
- \{\sup_nf_n>a\}=\bigcup_n\{f_n>a\},\qquad
- \{\inf_nf_n<a\}=\bigcup_n\{f_n<a\}.
+ \{f+g<a\}
+ =\bigcup_{q\in\mathbb Q}\bigl(\{f<q\}\cap\{g<a-q\}\bigr).
 \]
-再利用
-\[
- \liminf_nf_n=\sup_n\inf_{k\geq n}f_k,
- \qquad
- \limsup_nf_n=\inf_n\sup_{k\geq n}f_k,
-\]
-便得到上下极限可测。因此，可测函数列的逐点极限只要存在，也可测。
+当$f(x)+g(x)<a$时，可在$f(x)$与$a-g(x)$之间找到有理数$q$；有理数的可数性使右边成为可数并。积还可由平方和相减表达，或使用连续运算与可测映射复合。商须在分母非零处讨论，扩展实值运算须排除$\infty-\infty$等未定义情形。
 
-本节的证明顺序值得记住：先验证一个集合对应的开关，再验证有限线性组合，用单调极限处理任意非负函数，最后用正负部分处理一般函数。
+到这里，我们已经实际走过
+\[
+ \text{可测集}\longrightarrow\text{指示函数}
+ \longrightarrow\text{简单函数}
+ \longrightarrow\text{非负可测函数}
+ \longrightarrow\text{一般可测函数}.
+\]
+后面的积分将沿着同一条路线构造。
 
 \section{测度与测度空间}
 
 \subsection{给可测集合赋予大小}
+
+前面讨论$A\in\mathcal F$时，只是在判断这个集合是否属于允许讨论的范围。现在加入一个新的映射$\mu$，输入是可测集合$A$，输出是非负数$\mu(A)$。三类对象应当分开：
+\[
+ x\in X,\qquad A\in\mathcal F,\qquad \mu(A)\in[0,\infty].
+\]
+长度、面积、点的个数都符合这个输入输出形式。它们共同遵守的基本要求是：空集大小为零；把互不重叠的部分放在一起，整体大小等于各部分大小之和。
+
 
 \begin{definition}[测度]
 在可测空间$(X,\mathcal F)$上，测度是映射$\mu:\mathcal F\to[0,\infty]$，满足$\mu(\varnothing)=0$，以及对两两不交的$A_n\in\mathcal F$有
@@ -326,7 +542,14 @@ f^{-1}\left(\bigcup_nB_n\right)&=\bigcup_nf^{-1}(B_n).
 
 可列可加性要求互不重叠的部分能够相加。允许$+\infty$是为了同时容纳有限区域和无限空间。例如实数轴的总长度无穷，并不妨碍我们测量一个有限区间。
 
-同一集合可以承载不同测度：计数测度记录元素数目；Dirac测度$\delta_{x_0}(A)=\mathbf 1_A(x_0)$只在$x_0$放置单位质量；Lebesgue测度记录长度、面积或体积。测度的定义统一了这些对象，但它们的意义并不相同。
+同一集合可以承载不同测度：计数测度记录元素数目；Dirac测度$\delta_{x_0}(A)=I_A(x_0)$只在$x_0$放置单位质量；Lebesgue测度记录长度、面积或体积。测度的定义统一了这些对象，但它们的意义并不相同。
+
+
+\begin{bookexample}{同一个集合，可以有不同的大小}
+在$X=\mathbb R$上取$A=\{0,1,2\}$。计数测度给出$\mu(A)=3$；长度测度给出$m(A)=0$；集中在$1$的Dirac测度给出$\delta_1(A)=1$。若改成$B=(0,1)$，则其长度为$1$，计数测度为无穷，$\delta_1(B)=0$。
+
+所以只写一个集合，还不能知道它的“大小”。必须说明所用的测度；尤其“长度为零”不表示没有点，也不表示在另一种概率模型下概率必为零。
+\end{bookexample}
 
 若$\mu(X)<\infty$，称为有限测度。若存在$X=\bigcup_nE_n$且$\mu(E_n)<\infty$，称为$\sigma$有限测度。实数轴上的长度测度不是有限测度，却是$\sigma$有限的，因为$\mathbb R=\bigcup_n[-n,n]$。
 
@@ -346,6 +569,14 @@ f^{-1}\left(\bigcup_nB_n\right)&=\bigcup_nf^{-1}(B_n).
 \[
  \mu(A)=\lim_{n\to\infty}\mu(A_n).
 \]
+
+具体地，$A_n=D_1\sqcup\cdots\sqcup D_n$，所以
+\[
+ \mu(A_n)=\sum_{k=1}^n\mu(D_k),\qquad
+ \mu(A)=\sum_{k=1}^{\infty}\mu(D_k).
+\]
+右边正是非负级数部分和趋于总和的过程。这说明测度的连续性来自可数可加性，并非另外要求集合有光滑边界。
+
 这称为从下连续性。若$A_n\downarrow A$且$\mu(A_1)<\infty$，对$A_1\setminus A_n$应用上述结论，可得同样的极限公式，称为从上连续性。
 
 从上连续性的有限性不能省略。例如在长度测度下，$[n,\infty)\downarrow\varnothing$，每一项的测度却都是无穷。概率测度的总质量为一，因此在概率空间中这一有限性条件自动满足。
@@ -363,6 +594,26 @@ f^{-1}\left(\bigcup_nB_n\right)&=\bigcup_nf^{-1}(B_n).
 \section{外测度与Lebesgue测度}
 
 \subsection{先用简单集合从外面覆盖}
+
+设想纸上画了一块边界弯曲的区域。直接给它写一个面积公式并不容易，但可以用许多已知面积的小矩形从外面盖住它。盖得太松会多算；把矩形变细、摆放得更合适，便可能减少多余部分。我们考虑全部允许的覆盖，把总面积能降到的下界作为候选大小。
+
+\begin{center}
+\begin{tikzpicture}[scale=.8]
+ \fill[main!15] (0,0) .. controls (-.4,1) and (.8,2.2) .. (1.6,1.7)
+ .. controls (3,2.2) and (3.5,.7) .. (2.4,.15)
+ .. controls (1.6,-.6) and (.5,.4) .. (0,0);
+ \draw[thick,main] (0,0) .. controls (-.4,1) and (.8,2.2) .. (1.6,1.7)
+ .. controls (3,2.2) and (3.5,.7) .. (2.4,.15)
+ .. controls (1.6,-.6) and (.5,.4) .. (0,0);
+ \draw[dashed] (-.5,-.45) rectangle (.5,1.3);
+ \draw[dashed] (.3,-.45) rectangle (1.4,2.25);
+ \draw[dashed] (1.2,-.55) rectangle (2.3,2.25);
+ \draw[dashed] (2.1,-.45) rectangle (3.5,2.25);
+ \node at (1.45,.8) {$A$};
+ \node[right,align=left] at (4,.9) {用可数个简单区域覆盖\\允许多盖，取总大小的下确界};
+\end{tikzpicture}
+\end{center}
+
 
 在复杂集合上直接规定大小，可能很难同时保证可加性。一种构造方法是先知道简单集合的大小，用它们覆盖目标集合，再取所有覆盖总大小的下确界。
 
@@ -389,6 +640,9 @@ f^{-1}\left(\bigcup_nB_n\right)&=\bigcup_nf^{-1}(B_n).
 \]
 直观上，$A$这把“刀”无论切分哪个$E$，都不会使内外两部分的大小之和偏离整体。次可加性已经保证左边不大于右边；条件增加的是反方向的不等式。
 
+可以先用$E=(0,3)$、$A=(-\infty,1]$检查：切分得到$(0,1]$和$(1,3)$，长度为$1$与$2$，相加恢复$3$。定义要求的范围更大：$A$必须对每个测试集合$E$都满足这个等式。我们不是只检查$A$自己有多大，而是在检查用$A$来切分任意集合时，外测度能否一致地相加。
+
+
 满足这个条件的全部集合组成一个$\sigma$代数$\mathcal M_{\mu^*}$，而$\mu^*$限制到它上面便是完备测度。这里给出构造结论；证明的核心是反复用切分等式处理有限不交并，再借助次可加性处理可数极限。
 
 \subsection{从区间长度得到Lebesgue测度}
@@ -408,24 +662,41 @@ f^{-1}\left(\bigcup_nB_n\right)&=\bigcup_nf^{-1}(B_n).
 \]
 在$\mathbb R^n$中用矩形盒的体积替代区间长度，就能作出相应构造。本章不进一步展开不可测集的构造。
 
-\section{从简单函数积分到期望}
+\section{从简单函数到一般积分}
 
 \subsection{积分先在有限层高上定义}
 
-前面已经知道怎样给集合赋予大小，也知道怎样用简单函数逼近一般函数。现在把两者接起来。若$s=\sum_{k=1}^m a_k\mathbf 1_{A_k}$是非负简单函数，$A_k$两两不交，定义
+前面已经知道怎样给集合赋予大小，也知道怎样用简单函数逼近一般函数。现在把两者接起来。若$s=\sum_{k=1}^m a_kI_{A_k}$是非负简单函数，$A_k$两两不交，定义
 \[
  \int_X s\,d\mu:=\sum_{k=1}^m a_k\mu(A_k),
  \qquad 0\cdot\infty:=0.
 \]
 这是“每层高度乘以该层所在集合的大小”。细分某一层的集合不会改变结果，因为测度对不交分割可加。因此积分不依赖简单函数所采用的具体分割表示。
 
+\begin{bookexample}{同一个简单函数，积分随测度改变}
+在$X=\{a,b,c\}$上令$s(a)=1,s(b)=3,s(c)=2$。计数测度下
+\[
+ \int_X s\,d\mu=1+3+2=6.
+\]
+若改用概率测度，三个点的概率依次为$1/2,1/4,1/4$，则
+\[
+ \int_X s\,d\mathbb P=1\cdot\tfrac12+3\cdot\tfrac14+2\cdot\tfrac14
+ =\tfrac74.
+\]
+前者是把每个点的高度相加，后者是按各点概率加权。积分运算的形式相同，权重来自所选测度。
+\end{bookexample}
+
+
 对非负可测$f$，定义
 \[
  \int_X f\,d\mu
  :=\sup\left\{\int_X s\,d\mu:
-      0\leq s\leq f,\ s\text{为简单函数}\right\}.
+      0\leq s\leq f,\ s\text{为可测简单函数}\right\}.
 \]
-结果可以是无穷。对一般实值$f$，通过正负部分定义
+结果可以是无穷。
+
+这里取上确界，是因为从下方放置的每个简单函数都给出一个不会高估的积分值；我们收集全部这种下方近似。与外测度的覆盖构造对照：外测度从外面覆盖，取覆盖大小的下确界；非负积分从函数下方逼近，取积分值的上确界。两者都不要求某一个有限步骤恰好达到最终值。
+对一般实值$f$，通过正负部分定义
 \[
  \int f\,d\mu=\int f^+\,d\mu-\int f^-\,d\mu,
 \]
@@ -439,7 +710,33 @@ f^{-1}\left(\bigcup_nB_n\right)&=\bigcup_nf^{-1}(B_n).
 \]
 这使前面简单函数从下方逼近的过程也能用来计算积分。若$f_n\to f$几乎处处，且存在可积$g$使$|f_n|\leq g$，则支配收敛定理也允许交换极限与积分。
 
-不能仅凭逐点收敛就交换。例如在$(0,1)$上，$f_n=n\mathbf 1_{(0,1/n)}$逐点趋于零，但每个积分都等于一。函数的质量集中到越来越窄的区域，逐点极限没有保留这份积分质量。
+不能仅凭逐点收敛就交换。例如在$(0,1)$上，$f_n=nI_{(0,1/n)}$逐点趋于零，但每个积分都等于一。函数的质量集中到越来越窄的区域，逐点极限没有保留这份积分质量。
+
+\section{随机变量、分布与密度}
+
+\subsection{随机变量是可测映射}
+
+随机变量不必是一个随机实数。给定概率空间$(\Omega,\mathscr F,\mathbb P)$，取可测映射
+\[
+ X:(\Omega,\mathscr F)\to(M,\mathcal B(M)).
+\]
+若$M=\mathbb R^d$，它是随机向量；若$M=\SO(3)$，它是随机姿态。严格区分底层结果$\omega$、随机映射$X$与实现值$X(\omega)$，就不会把机器人状态和样本空间混为一谈。
+
+\begin{bookexample}{两次抛硬币与正面次数}
+取$\Omega=\{HH,HT,TH,TT\}$，四种结果等概率，令$Y(\omega)$记录正面出现的次数。于是$Y(HH)=2$，$Y(HT)=Y(TH)=1$，$Y(TT)=0$。问题“正面至少一次”先在输出端写成$\{1,2\}$，再拉回输入端：
+\[
+ Y^{-1}(\{1,2\})=\{HH,HT,TH\}.
+\]
+因此它的概率为$3/4$。这一次计算依次使用了映射、原像、事件及概率测度。分布就是把这样的结果统一记在输出空间上。
+\end{bookexample}
+
+
+对$A\in\mathcal B(M)$，定义
+\[
+ \boxed{\mathsf P_X(A)=\mathbb P(X^{-1}(A)),\qquad
+        \mathsf P_X=X_*\mathbb P.}
+\]
+这就是$X$的分布，也称概率测度的推前。原像保持空集、不交性与可数并，因此$\mathsf P_X$确实是总质量为一的测度。
 
 \subsection{期望、均值与协方差}
 
@@ -447,7 +744,15 @@ f^{-1}\left(\bigcup_nB_n\right)&=\bigcup_nf^{-1}(B_n).
 \[
  \mathbb E[Y]=\int_\Omega Y(\omega)\,d\mathbb P(\omega).
 \]
-特别地，$\mathbb E[\mathbf 1_A]=\mathbb P(A)$，概率本身也可以看成一种期望。
+特别地，$\mathbb E[I_A]=\mathbb P(A)$，概率本身也可以看成一种期望。
+
+若$Y=f(X)$且$f$可测，那么$\mathsf P_Y=f_*\mathsf P_X$。对非负可测或可积的测试函数$g$，还有
+\[
+ \mathbb E[g(X)]=\int_Mg(x)\,d\mathsf P_X(x).
+\]
+这一换元公式可以先对指示函数验证，再推广到简单函数、非负函数和可积函数，正好重走本章的构造顺序。
+
+
 
 若$Y:\Omega\to\mathbb R^d$有有限二阶矩，逐分量积分得到均值$m=\mathbb E[Y]$，协方差定义为
 \[
@@ -460,29 +765,6 @@ f^{-1}\left(\bigcup_nB_n\right)&=\bigcup_nf^{-1}(B_n).
 \]
 所以协方差对称半正定。它利用了向量空间中的相减与外积；若随机状态落在流形上，就必须先决定怎样得到局部误差坐标，第七章会具体处理这一点。
 
-\section{随机变量、分布与密度}
-
-\subsection{随机变量是可测映射}
-
-随机变量不必是一个随机实数。给定概率空间$(\Omega,\mathscr F,\mathbb P)$，取可测映射
-\[
- X:(\Omega,\mathscr F)\to(M,\mathcal B(M)).
-\]
-若$M=\mathbb R^d$，它是随机向量；若$M=\SO(3)$，它是随机姿态。严格区分底层结果$\omega$、随机映射$X$与实现值$X(\omega)$，就不会把机器人状态和样本空间混为一谈。
-
-对$A\in\mathcal B(M)$，定义
-\[
- \boxed{\mathsf P_X(A)=\mathbb P(X^{-1}(A)),\qquad
-        \mathsf P_X=X_*\mathbb P.}
-\]
-这就是$X$的分布，也称概率测度的推前。原像保持空集、不交性与可数并，因此$\mathsf P_X$确实是总质量为一的测度。
-
-若$Y=f(X)$且$f$可测，那么$\mathsf P_Y=f_*\mathsf P_X$。对非负可测或可积的测试函数$g$，还有
-\[
- \mathbb E[g(X)]=\int_Mg(x)\,d\mathsf P_X(x).
-\]
-这一换元公式可以先对指示函数验证，再推广到简单函数、非负函数和可积函数，正好重走本章的构造顺序。
-
 \subsection{分布存在不代表密度存在}
 
 选择参考测度$\nu$后，若有非负可测$p$使
@@ -490,6 +772,13 @@ f^{-1}\left(\bigcup_nB_n\right)&=\bigcup_nf^{-1}(B_n).
  \mathsf P_X(A)=\int_Ap(x)\,d\nu(x),
 \]
 则$p$称为相对于$\nu$的概率密度，记作$d\mathsf P_X=p\,d\nu$。它满足$\int p\,d\nu=1$，但$p(x)$本身可以大于一。
+
+例如在$(0,1/2)$上均匀分配总概率$1$，相对于长度的密度为$p(x)=2$，区间外为零。取$A=(0,1/4)$，
+\[
+ \mathsf P_X(A)=\int_0^{1/4}2\,dx=\tfrac12.
+\]
+密度是单位参考大小所承载的概率质量；真正的区域概率要经过积分。单个点的长度为零，在这个模型中其概率也为零，但随机结果仍然会取到区间中的某个点。
+
 
 有密度时，$\nu(A)=0$必推出$\mathsf P_X(A)=0$，称$\mathsf P_X$关于$\nu$绝对连续。在$\nu$为$\sigma$有限测度等标准条件下，Radon--Nikodym定理保证这种绝对连续性对应密度的存在；本章使用这个结论而不展开证明。
 
@@ -518,11 +807,7 @@ $f_*\mathsf P$传递的是整个分布；$(df)_x$传递的是切向量。若用$
 \]
 它是可测区域，$\mathsf P(A)$表示位姿落在该区域的概率。阈值需要有明确单位，位置阈值与角度阈值不能相互代替。
 
-若要写密度，还要选参考测度。Riemann度量$g$在坐标中给出体积元
-\[
- d\operatorname{vol}_g=\sqrt{\det[g_{ij}(u)]}\,du^1\cdots du^n.
-\]
-李群还可使用与群平移相容的Haar测度，例如左Haar测度满足$\nu(gA)=\nu(A)$。紧群$\SO(3)$可以把Haar测度归一化成均匀概率；$\SE(3)$非紧，整个群上的Haar测度不能归一化为均匀概率。参考体积规定区域的大小，状态分布则规定概率质量如何分配，二者需要分开。
+若要进一步写$d\mathsf P=p\,d\mu$，还要为状态空间选择参考测度$\mu$。前几章中的几何结构可以提供这样的体积概念：Riemann度量给出体积测度，李群上还可以考虑与平移相容的Haar测度。此处只需记住“参考体积”和“概率如何分配”是两件事；判断区域概率时始终回到$\mathsf P(A)$。
 
 \subsection{残差门限就是一个原像事件}
 
@@ -540,8 +825,11 @@ $f_*\mathsf P$传递的是整个分布；$(df)_x$传递的是切向量。若用$
 带权粒子$\{(x_i,w_i)\}_{i=1}^N$满足$w_i\geq0$、$\sum_iw_i=1$，对应概率测度
 \[
  \mathsf P_N=\sum_{i=1}^Nw_i\delta_{x_i},\qquad
- \mathsf P_N(A)=\sum_{i=1}^Nw_i\mathbf 1_A(x_i).
+ \mathsf P_N(A)=\sum_{i=1}^Nw_iI_A(x_i).
 \]
+
+例如三个粒子的权重分别为$0.2,0.5,0.3$，若某个位姿区域$A$只包含前两个粒子，则$\mathsf P_N(A)=0.2+0.5=0.7$。区域可以很复杂，但只需检查每个粒子的开关$I_A(x_i)$，再把通过检查的权重相加。
+
 它可以直接表示位姿空间上的分布，不需要先写一个关于连续体积的密度。局部高斯模型则把随机误差放在某个局部线性空间中，用均值与协方差概括，再通过局部参数化送回状态空间。
 
 到这里，三个问题已经各有对应对象：状态空间说明状态能在哪里；可测结构说明允许询问哪些区域；概率测度说明各区域有多少概率。下一章固定一个名义状态，在其附近选择误差坐标，将这套语言落实为ESKF的预测、更新、注入和重置。

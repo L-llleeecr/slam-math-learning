@@ -80,3 +80,10 @@
 \renewcommand{\O}{\mathcal{O}}
 
 \DeclareMathOperator{\del}{\partial}
+
+% 第六至八章沿用正文中的简洁例子样式。
+\newenvironment{bookexample}[1]{%
+    \par\medskip\noindent\textbf{\color{main}例：#1}\rmfamily\par\nobreak
+}{%
+    \par\medskip\ignorespacesafterend
+}
