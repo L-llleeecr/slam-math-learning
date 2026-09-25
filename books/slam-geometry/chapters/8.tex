@@ -1,53 +1,53 @@
-\chapter{ESKF与IMU预积分的完整推导}
-\label{chap:estimation-derivations}
-\label{chap:imu-preintegration}
+\chapter{ESKF的完整推导：传播、观测与重置}
 
-第七章已经把两套方法各走完了一遍。现在回到其中暂时保留整体含义的矩阵：ESKF的$\Phi_k,Q_{d,k},H,G_{\mathrm{reset}}$怎样计算，预积分的$F_k,G_k$、五个偏置Jacobian以及端点Jacobian又怎样产生？本章的任务是从已经明确的对象关系出发，把这些量逐项推出来。
+\label{chap:md-09}
 
-推导分成两组。先沿ESKF的“真实与名义运动相比较、离散传播、观测更新、注入重置”展开，再沿预积分的“相对化、积分、误差传播、偏置修正、端点比较”展开。每一组都先写分量的变化，最后才合成矩阵。这样一个矩阵块出现时，可以同时知道它从哪条等式来，以及第七章的哪一步会使用它。
+第八章已经沿时间顺序走完一次ESKF循环，但把$\Phi_k,Q_{d,k},H,K$和$G_{\mathrm{reset}}$保留为整体映射。现在从同一组坐标和误差约定出发，追踪这些矩阵的来源。每一节先写清真实量、名义量和局部变化，再把分量关系合为矩阵；读到一个非零块时，应能指出它把哪一种旧误差送到了哪一种新误差。
 
 \section{统一约定与推导入口}
-\label{sec:derivation-conventions}
 
-\subsection{状态、误差与坐标系保持同一套约定}
+\subsection{状态、误差和坐标系保持同一套约定}
 
-$R=R_{WB}$把机体系向量送到世界系，$p,v,g_W$以世界系表达，IMU读数与偏置以机体系表达。重力为已知常向量，IMU与机体系重合。完整状态与局部误差顺序固定为
-\[
- x=(R,p,v,b_g,b_a)\in\mathcal X=\SO(3)\times\mathbb R^{12},
- \qquad\delta x=(\delta\theta,\delta p,\delta v,\delta b_g,\delta b_a).
-\]
-上式的误差分量在矩阵运算中堆成列向量。旋转采用$R=\hat R\Exp(\delta\theta^\wedge)$的右侧误差，其余分量采用加法，也就是式\eqref{eq:intuition-oplus}的$\oplus$。后端求导同样使用这套局部更新。
+沿用第\ref{chap:md-08}章：$R=R_{WB}$把机体系向量送到世界系，$p,v,g_W$在世界系表达，IMU读数及偏置在机体系表达。状态及误差顺序固定为
 
-预积分运动误差则按$(\theta,v,p)$排列，加入偏置后按$(\theta,v,p,b_g,b_a)$排列。这是残差的行顺序；端点状态增量的列顺序仍为$(\theta,p,v,b_g,b_a)$。二者都含有位置和速度，不代表可以按数组位置直接混用。
+\begin{equation*}
+x=(R,p,v,b_g,b_a),\qquad
+\delta x=(\delta\theta,\delta p,\delta v,\delta b_g,\delta b_a).
+\end{equation*}
 
-\subsection{一次积分的近似也要固定}
+姿态使用右侧误差$R=\hat R\operatorname{Exp}(\delta\theta^\wedge)$，其余分量使用加法。所有Jacobian都在这套局部坐标下计算；更换扰动方向时，矩阵也必须跟着换。
 
-以下使用第七章的区间起点积分器：旋转用指数更新，比力投影冻结在一步起点，位置保留旧速度项和$\tfrac12h^2$项。$h=\Delta t_k$是一个IMU时间步，$T_{ij}$是整个关键帧区间。名义递推、偏置微分、误差微分必须来自同一张离散映射。
+\subsection{一次传播采用什么数值近似}
 
-连续噪声谱密度用$Q_c$表示；区间平均噪声样本的协方差、整步积分噪声的协方差会分别定义。它们的时间因子不同。读者可以先沿选定离散模型追踪公式，再看连续积分与该近似的差别。
+这里采用第八章的区间起点积分器：旋转用指数映射更新，比力的世界方向在一步起点近似固定，位置使用旧速度和$\tfrac12 h^2$项。连续动力学用于看清误差耦合，实际离散矩阵则要与选定的名义递推一致。连续噪声谱密度、区间平均噪声样本与积分后的离散协方差分别命名，不能仅因都描述噪声便把它们当作同一个矩阵。
 
-\begin{center}
-\begin{tabular}{p{.29\textwidth}p{.59\textwidth}}
-\hline
-第七章已经使用的量 & 本章要补出的计算\\\hline
-$\Phi_k,Q_{d,k}$ & 真实减名义的一阶误差方程及其离散化\\
-$H,K,P_u,G_{\mathrm{reset}}$ & 观测微分、高斯条件更新和参考点换元\\
-$F_k,G_k,\Sigma_{ij}$ & 相对运动的一步微分和联合噪声传播\\
-五个偏置Jacobian & 对同一批IMU在偏置处求导并递推\\
-端点$J_{ij}$ & 对已定义的IMU残差作局部扰动求导\\\hline
-\end{tabular}
-\end{center}
+\subsection{本章要补出的计算}
+
+\begin{center}\small\begin{tabular}{p{0.420\textwidth}p{0.420\textwidth}}\toprule
+
+第八章的量 & 本章追踪的来源 \\
+
+\midrule
+
+$\Phi_k,Q_{d,k}$ & 真实与名义运动的一阶差、一步离散化和噪声积分 \\
+
+$H$ & 观测映射在名义状态附近的局部微分 \\
+
+$K,P_u$ & 线性高斯观测的局部后验 \\
+
+$G_{\mathrm{reset}}$ & 注入后更换误差参考点的坐标变换 \\
+
+\bottomrule\end{tabular}\end{center}
 
 \section{ESKF：从真实与名义运动得到连续误差系统}
-\label{sec:eskf-error-dynamics}
 
-这一节为式\eqref{eq:intuition-error-step}计算传播模型的来源。先把真实运动和名义运动写在同一坐标约定下，比较两者如何分开；连续矩阵只是这些分量关系的汇总。
+这一节为式\eqref{eq-intuition-error-step}计算传播模型的来源。先把真实运动和名义运动写在同一坐标约定下，比较两者如何分开；连续矩阵只是这些分量关系的汇总。
 
 \subsection{先把两条轨迹写清楚}
 
 由$\omega_m=\omega+b_g+n_g$和$a_m=a+b_a+n_a$，真实运动的形式方程为
-\begin{equation}
-\label{eq:eskf-true-dynamics}
+
+\begin{equation}\label{eq-eskf-true-dynamics}
 \begin{aligned}
  \dot R&=R(\omega_m-b_g-n_g)^\wedge,\\
  \dot p&=v,\\
@@ -55,129 +55,155 @@ $F_k,G_k,\Sigma_{ij}$ & 相对运动的一步微分和联合噪声传播\\
  \dot b_g&=n_{wg},\qquad\dot b_a=n_{wa}.
 \end{aligned}
 \end{equation}
+
 $n_g,n_a$是测量噪声，$n_{wg},n_{wa}$驱动偏置随机游走。若采用连续白噪声，它们应按积分噪声理解；下一节专门说明这一记法如何落实为有限方差的增量。
 
 记$\hat\omega=\omega_m-\hat b_g$、$\hat a=a_m-\hat b_a$。计算名义轨迹时把未知噪声取为零，得到
-\[
+
+\begin{equation*}
 \begin{aligned}
  \dot{\hat R}&=\hat R\hat\omega^\wedge,&\dot{\hat p}&=\hat v,\\
  \dot{\hat v}&=g_W+\hat R\hat a,&
  \dot{\hat b}_g&=0,\quad\dot{\hat b}_a=0.
 \end{aligned}
-\]
-非线性系统中，将均值代入动力学通常不等于精确求下一状态的期望；这里的名义轨迹是滤波使用的参考。它的离散计算已经由式\eqref{eq:eskf-nominal-step}给出。
+\end{equation*}
 
+非线性系统中，将均值代入动力学通常不等于精确求下一状态的期望；这里的名义轨迹是滤波使用的参考。它的离散计算已经由式\eqref{eq-eskf-nominal-step}给出。
 
 \subsection{把真实状态拆成名义值与误差}
 
 本章的$\oplus$明确指
-\[
+
+\begin{equation*}
 \begin{aligned}
- R&=\hat R\Exp(\delta\theta^\wedge),& p&=\hat p+\delta p,\\
+ R&=\hat R\mathop{\mathrm{Exp}}(\delta\theta^\wedge),& p&=\hat p+\delta p,\\
  v&=\hat v+\delta v,& b_g&=\hat b_g+\delta b_g,\\
  && b_a&=\hat b_a+\delta b_a.
 \end{aligned}
-\]
+\end{equation*}
+
 下面丢弃误差与噪声的二阶乘积。推导的关键是先把真实方程写进同一约定，再减去名义方程，而不是直接从姿态矩阵中相减得到一个九维误差。
 
 \subsection{位置和速度误差}
 
 位置直接相减：
 
-\[
- \dot{\delta p}=\frac{d}{dt}(p-\hat p)
+\begin{equation*}
+\dot{\delta p}=\frac{d}{dt}(p-\hat p)
                =\dot p-\dot{\hat p}=v-\hat v.
-\]
+\end{equation*}
+
 真实位置以真实速度变化，名义位置以名义速度变化，因此两条轨迹间的距离变化率就是速度差：
 
-\[
- \boxed{\dot{\delta p}=\delta v.}
-\]
+\begin{equation*}
+\boxed{\dot{\delta p}=\delta v.}
+\end{equation*}
 
 速度多了一层关系。它的误差既可能来自加速度计读数和偏置，也可能来自投影读数所用的姿态。先写出真实输入
-\[
- a_m-b_a-n_a=\hat a-\delta b_a-n_a.
-\]
-再使用$\Exp(\delta\theta^\wedge)\simeq I+\delta\theta^\wedge$。在乘法展开中，$\delta\theta^\wedge\delta b_a$和$\delta\theta^\wedge n_a$都是小量的乘积，线性化时将它们舍去。
+
+\begin{equation*}
+a_m-b_a-n_a=\hat a-\delta b_a-n_a.
+\end{equation*}
+
+再使用$\mathop{\mathrm{Exp}}(\delta\theta^\wedge)\simeq I+\delta\theta^\wedge$。在乘法展开中，$\delta\theta^\wedge\delta b_a$和$\delta\theta^\wedge n_a$都是小量的乘积，线性化时将它们舍去。
 
 速度方程先展开旋转对比力的作用：
-\[
+
+\begin{equation*}
 \begin{aligned}
  R(a_m-b_a-n_a)
- &=\hat R\Exp(\delta\theta^\wedge)(\hat a-\delta b_a-n_a)\\
+ &=\hat R\mathop{\mathrm{Exp}}(\delta\theta^\wedge)(\hat a-\delta b_a-n_a)\\
  &\simeq\hat R\hat a-\hat R\hat a^\wedge\delta\theta
                  -\hat R\delta b_a-\hat Rn_a.
 \end{aligned}
-\]
+\end{equation*}
+
 这里使用了$\delta\theta\times\hat a=-\hat a\times\delta\theta$。减去名义速度方程后，已知重力抵消，得到
-\[
- \boxed{\dot{\delta v}
+
+\begin{equation*}
+\boxed{\dot{\delta v}
        =-\hat R\hat a^\wedge\delta\theta
         -\hat R\delta b_a-\hat Rn_a.}
-\]
+\end{equation*}
+
 姿态估计有误，会把比力投到错误的世界方向；速度误差随后积累成位置误差。因此这三个误差不能作为相互独立的标量噪声处理。
 
 \begin{bookexample}{轻微倾斜怎样变成水平速度误差}
-令$\hat R=I$、$\hat a=(0,0,g)^\top$，误差为绕$y$轴的小角度$\delta\theta=(0,\varepsilon,0)^\top$。则
-\[
- -\hat a^\wedge\delta\theta
- =\delta\theta\times\hat a=(g\varepsilon,0,0)^\top.
-\]
-原本接近竖直方向的比力，因为姿态差异而带来一个水平分量。一小段时间$h$后，这个方向的速度误差约增加$g\varepsilon h$。若$\varepsilon=0.01\,\mathrm{rad}$，对应加速度误差约为$0.098\,\mathrm{m/s^2}$。姿态误差即使看起来很小，也会持续影响速度和位置。
-\end{bookexample}
 
+令$\hat R=I$、$\hat a=(0,0,g)^\top$，误差为绕$y$轴的小角度$\delta\theta=(0,\varepsilon,0)^\top$。则
+
+\begin{equation*}
+-\hat a^\wedge\delta\theta
+ =\delta\theta\times\hat a=(g\varepsilon,0,0)^\top.
+\end{equation*}
+
+原本接近竖直方向的比力，因为姿态差异而带来一个水平分量。一小段时间$h$后，这个方向的速度误差约增加$g\varepsilon h$。若$\varepsilon=0.01\,\mathrm{rad}$，对应加速度误差约为$0.098\,\mathrm{m/s^2}$。姿态误差即使看起来很小，也会持续影响速度和位置。
+
+\end{bookexample}
 
 \subsection{姿态误差}
 
-记$E=\hat R^\top R=\Exp(\delta\theta^\wedge)$。
+记$E=\hat R^\top R=\mathop{\mathrm{Exp}}(\delta\theta^\wedge)$。
 
 这个相对旋转在名义与真实姿态重合时等于$I$。先对乘积求导：
-\[
- \dot E=\dot{\hat R}^{\top}R+\hat R^\top\dot R.
-\]
+
+\begin{equation*}
+\dot E=\dot{\hat R}^{\top}R+\hat R^\top\dot R.
+\end{equation*}
+
 由$\dot{\hat R}=\hat R\hat\omega^\wedge$和叉积矩阵的反对称性，有$\dot{\hat R}^{\top}=-\hat\omega^\wedge\hat R^\top$。真实角速度又等于$\hat\omega-\delta b_g-n_g$。把这两项代回，而不是对旋转矩阵的九个元素独立取误差，就得到
-\[
- \dot E=-\hat\omega^\wedge E
+
+\begin{equation*}
+\dot E=-\hat\omega^\wedge E
           +E(\hat\omega-\delta b_g-n_g)^\wedge.
-\]
+\end{equation*}
+
 使用$E\simeq I+\delta\theta^\wedge$，保留一阶项，得
-\[
- \dot{\delta\theta}^{\wedge}
+
+\begin{equation*}
+\dot{\delta\theta}^{\wedge}
  \simeq-\hat\omega^\wedge\delta\theta^\wedge
        +\delta\theta^\wedge\hat\omega^\wedge
        -(\delta b_g+n_g)^\wedge.
-\]
-叉积矩阵的交换子满足
-$[u^\wedge,v^\wedge]=(u\times v)^\wedge$，因而
-\[
- \boxed{\dot{\delta\theta}
+\end{equation*}
+
+叉积矩阵的交换子满足 $[u^\wedge,v^\wedge]=(u\times v)^\wedge$，因而
+
+\begin{equation*}
+\boxed{\dot{\delta\theta}
        =-\hat\omega^\wedge\delta\theta-\delta b_g-n_g.}
-\]
+\end{equation*}
+
 其中$-\hat\omega^\wedge\delta\theta$来自误差所依附的局部坐标随名义姿态变化。若改成左侧误差，这一项及相关坐标会随之改变。
 
-可以用两个情形检查它。若名义姿态暂时不转动，$\hat\omega=0$，只剩$\dot{\delta\theta}=-\delta b_g-n_g$。真实偏置比估计大时，名义输入中扣掉的偏置太少，名义角速度偏大，于是“真实相对名义”的误差向负方向积累，负号正好表达这一关系。
+可以用两个情形检查它。若名义姿态暂时不转动，$\hat\omega=0$，只剩$\dot{\delta\theta}=-\delta b_g-n_g$。真实偏置比估计大时，名义输入中扣掉的偏置太少，名义角速度偏大，于是"真实相对名义"的误差向负方向积累，负号正好表达这一关系。
 
 若真实与名义角速度相同，只有已有的小姿态差，那么误差向量也会因随名义姿态转动的表达坐标而改变，这由$-\hat\omega^\wedge\delta\theta$记录。
-
 
 \subsection{偏置误差与整体矩阵}
 
 真实偏置作随机游走，名义偏置在预测时不变，所以
-\[
- \dot{\delta b}_g=n_{wg},\qquad\dot{\delta b}_a=n_{wa}.
-\]
+
+\begin{equation*}
+\dot{\delta b}_g=n_{wg},\qquad\dot{\delta b}_a=n_{wa}.
+\end{equation*}
+
 将噪声按陀螺测量、加速度测量、陀螺偏置游走、加速度偏置游走的顺序排列：
-\[
- n=(n_g^\top,n_a^\top,n_{wg}^\top,n_{wa}^\top)^\top\in\mathbb R^{12}.
-\]
+
+\begin{equation*}
+n=(n_g^\top,n_a^\top,n_{wg}^\top,n_{wa}^\top)^\top\in\mathbb R^{12}.
+\end{equation*}
+
 再汇总得到连续线性误差系统
-\begin{equation}
-\label{eq:eskf-linear-system}
- \dot{\delta x}=F_c\delta x+G_cn,
+
+\begin{equation}\label{eq-eskf-linear-system}
+\dot{\delta x}=F_c\delta x+G_cn,
 \end{equation}
+
 其中每个块都是$3\times3$，按$(\theta,p,v,b_g,b_a)$排列：
-\[
- F_c=\begin{bmatrix}
+
+\begin{equation*}
+F_c=\begin{bmatrix}
  -\hat\omega^\wedge&0&0&-I&0\\
  0&0&I&0&0\\
  -\hat R\hat a^\wedge&0&0&0&-\hat R\\
@@ -191,369 +217,441 @@ $[u^\wedge,v^\wedge]=(u\times v)^\wedge$，因而
  0&0&I&0\\
  0&0&0&I
  \end{bmatrix}.
-\]
+\end{equation*}
+
 $F_c\in\mathbb R^{15\times15}$，$G_c\in\mathbb R^{15\times12}$。
 
 读块矩阵时，每一行对应一个误差变化率，每一列对应一个误差来源。例如第三行乘上$\delta x$就是
-\[
- (-\hat R\hat a^\wedge)\delta\theta
+
+\begin{equation*}
+(-\hat R\hat a^\wedge)\delta\theta
  +0\delta p+0\delta v+0\delta b_g+(-\hat R)\delta b_a,
-\]
-恰好还原刚才的速度误差方程。第二行的$I$位于速度列，表示位置误差由速度误差驱动。零块也有含义：在当前模型中，位置误差不会直接改变比力测量，所以速度行的位置列为零。
-同样，$F_{vb_a}=-\hat R$把机体系偏置误差转换成世界系速度变化率。每个非零块都可以回到对应分量方程检查。
+\end{equation*}
+
+恰好还原刚才的速度误差方程。第二行的$I$位于速度列，表示位置误差由速度误差驱动。零块也有含义：在当前模型中，位置误差不会直接改变比力测量，所以速度行的位置列为零。 同样，$F_{vb_a}=-\hat R$把机体系偏置误差转换成世界系速度变化率。每个非零块都可以回到对应分量方程检查。
 
 \section{ESKF：把连续误差变成一步传播与协方差}
-\label{sec:eskf-covariance}
-\label{sec:eskf-discretization-detail}
 
-现在补齐式\eqref{eq:intuition-error-step}中的$\Phi_k,w_k$及式\eqref{eq:intuition-P-predict}中的$Q_{d,k}$。连续$F_c$告诉我们误差变化率，离散$\Phi_k$告诉我们走完一步后的误差，不能把两者直接视为同一个矩阵。
+现在补齐式\eqref{eq-intuition-error-step}中的$\Phi_k,w_k$及式\eqref{eq-intuition-p-predict}中的$Q_{d,k}$。连续$F_c$告诉我们误差变化率，离散$\Phi_k$告诉我们走完一步后的误差，不能把两者直接视为同一个矩阵。
 
 下面区分两条路线：积分连续线性误差系统，或者直接微分选定的离散递推。它们在小时间步的一阶项上相容，高阶项可以不同。实现时应明确选用哪条路线，并配套使用相应的噪声模型。
 
 \subsection{连续白噪声的含义}
 
 连续模型中的白噪声是广义随机过程，不是每个时刻都能取一个有限方差样本的普通函数。令
-\[
- n=(n_g^\top,n_a^\top,n_{wg}^\top,n_{wa}^\top)^\top,
+
+\begin{equation*}
+n=(n_g^\top,n_a^\top,n_{wg}^\top,n_{wa}^\top)^\top,
  \qquad \mathbb E[n(t)n(s)^\top]=Q_c\delta(t-s).
-\]
-$Q_c$表示连续噪声谱密度矩阵。式\eqref{eq:eskf-true-dynamics}是惯性导航常用的形式记法；后面用积分后的噪声增量及其协方差落实计算。名义积分与误差线性化采用小时间步近似，不在这里展开完整的流形随机微分方程理论。
+\end{equation*}
+
+$Q_c$表示连续噪声谱密度矩阵。式\eqref{eq-eskf-true-dynamics}是惯性导航常用的形式记法；后面用积分后的噪声增量及其协方差落实计算。名义积分与误差线性化采用小时间步近似，不在这里展开完整的流形随机微分方程理论。
 
 \subsection{状态转移与积分噪声}
 
 线性系统的状态转移矩阵满足
-\[
- \frac{\partial}{\partial t}\Phi(t,s)=F_c(t)\Phi(t,s),
+
+\begin{equation*}
+\frac{\partial}{\partial t}\Phi(t,s)=F_c(t)\Phi(t,s),
  \qquad\Phi(s,s)=I.
-\]
+\end{equation*}
+
 从$t_k$积分到$t_{k+1}$，得到
-\[
- \delta x_{k+1}=\Phi_k\delta x_k+w_k,
+
+\begin{equation*}
+\delta x_{k+1}=\Phi_k\delta x_k+w_k,
  \qquad\Phi_k=\Phi(t_{k+1},t_k),
-\]
-\[
- w_k=\int_{t_k}^{t_{k+1}}\Phi(t_{k+1},\tau)G_c(\tau)n(\tau)\,d\tau.
-\]
+\end{equation*}
+
+\begin{equation*}
+w_k=\int_{t_k}^{t_{k+1}}\Phi(t_{k+1},\tau)G_c(\tau)n(\tau)\,d\tau.
+\end{equation*}
+
 若连续白噪声与旧状态误差独立，则积分噪声零均值，协方差为
-\begin{equation}
-\label{eq:eskf-Qd}
- Q_{d,k}=\int_{t_k}^{t_{k+1}}
+
+\begin{equation}\label{eq-eskf-qd}
+Q_{d,k}=\int_{t_k}^{t_{k+1}}
  \Phi(t_{k+1},\tau)G_c(\tau)Q_cG_c(\tau)^\top
  \Phi(t_{k+1},\tau)^\top\,d\tau.
 \end{equation}
+
 因此
-\[
- \boxed{P_{k+1}^-=\Phi_kP_k^+\Phi_k^\top+Q_{d,k}.}
-\]
+
+\begin{equation*}
+\boxed{P_{k+1}^-=\Phi_kP_k^+\Phi_k^\top+Q_{d,k}.}
+\end{equation*}
+
 第一项传播已有不确定性，第二项加入本时间段的新噪声。若二者相关，交叉项不能省略。
 
 冻结一步内的连续矩阵时，可取$\Phi_k=\exp(F_ch)$并计算对应积分；再作一阶近似才有
-\[
- \Phi_k\simeq I+F_ch,\qquad Q_{d,k}\simeq G_cQ_cG_c^\top h.
-\]
+
+\begin{equation*}
+\Phi_k\simeq I+F_ch,\qquad Q_{d,k}\simeq G_cQ_cG_c^\top h.
+\end{equation*}
+
 这两式是小时间步近似。连续矩阵$F_c$与离散矩阵$\Phi_k$不是同一个对象。
 
 \subsection{与所选离散积分器一致的误差传播}
 
-若直接对式\eqref{eq:eskf-nominal-step}作局部微分，可以得到与该积分器匹配的离散矩阵。令
-\[
- \phi_k=\hat\omega_kh,\qquad A_k=\Exp(\phi_k^\wedge),
+若直接对式\eqref{eq-eskf-nominal-step}作局部微分，可以得到与该积分器匹配的离散矩阵。令
+
+\begin{equation*}
+\phi_k=\hat\omega_kh,\qquad A_k=\mathop{\mathrm{Exp}}(\phi_k^\wedge),
  \qquad B_k=-\hat R_k\hat a_k^\wedge.
-\]
+\end{equation*}
+
 指数映射的右Jacobian由
-\[
- \Exp((\phi+\epsilon)^\wedge)
- =\Exp(\phi^\wedge)\Exp((J_r(\phi)\epsilon)^\wedge)
+
+\begin{equation*}
+\mathop{\mathrm{Exp}}((\phi+\epsilon)^\wedge)
+ =\mathop{\mathrm{Exp}}(\phi^\wedge)\mathop{\mathrm{Exp}}((J_r(\phi)\epsilon)^\wedge)
    +O(\|\epsilon\|^2)
-\]
+\end{equation*}
+
 定义。对$\theta=\|\phi\|$，其矩阵为
-\[
- J_r(\phi)=I-\frac{1-\cos\theta}{\theta^2}\phi^\wedge
+
+\begin{equation*}
+J_r(\phi)=I-\frac{1-\cos\theta}{\theta^2}\phi^\wedge
               +\frac{\theta-\sin\theta}{\theta^3}(\phi^\wedge)^2,
  \qquad J_r(0)=I.
-\]
+\end{equation*}
+
 小角度时用$I-\frac12\phi^\wedge+\frac16(\phi^\wedge)^2+\cdots$计算，避免小量相除的数值问题。对应离散误差转移为
-\[
- \Phi_k^{\mathrm{step}}=\begin{bmatrix}
+
+\begin{equation*}
+\Phi_k^{\mathrm{step}}=\begin{bmatrix}
  A_k^\top&0&0&-J_r(\phi_k)h&0\\
  \tfrac12B_kh^2&I&Ih&0&-\tfrac12\hat R_kh^2\\
  B_kh&0&I&0&-\hat R_kh\\
  0&0&0&I&0\\
  0&0&0&0&I
  \end{bmatrix}.
-\]
+\end{equation*}
+
 例如位置更新中的加速度项对姿态求导，正好产生$\frac12B_kh^2$。这与冻结连续矩阵后取矩阵指数在高阶项上不完全相同：前者微分的是选定数值积分器，后者积分的是冻结后的连续线性系统。应明确选用哪一种近似。
 
 \subsection{噪声密度与离散样本方差}
 
 若把区间平均测量噪声记为$\bar n_{g,k},\bar n_{a,k}$，把整步偏置增量记为$w_{bg,k},w_{ba,k}$，采用在步末加入偏置随机游走的离散模型，则
-\[
- \eta_k=(\bar n_{g,k}^\top,\bar n_{a,k}^\top,
+
+\begin{equation*}
+\eta_k=(\bar n_{g,k}^\top,\bar n_{a,k}^\top,
                  w_{bg,k}^\top,w_{ba,k}^\top)^\top,
-\]
-\[
- Q_{\eta,k}=\operatorname{diag}
+\end{equation*}
+
+\begin{equation*}
+Q_{\eta,k}=\operatorname{diag}
        (Q_gh^{-1},Q_ah^{-1},Q_{wg}h,Q_{wa}h),
-\]
+\end{equation*}
+
 其中为简洁假设四类噪声互不相关。该离散模型的噪声矩阵为
-\[
- L_k=\begin{bmatrix}
+
+\begin{equation*}
+L_k=\begin{bmatrix}
  -J_r(\phi_k)h&0&0&0\\
  0&-\tfrac12\hat R_kh^2&0&0\\
  0&-\hat R_kh&0&0\\
  0&0&I&0\\
  0&0&0&I
  \end{bmatrix}.
-\]
+\end{equation*}
+
 于是用$\Phi_k^{\mathrm{step}}$和$Q_{d,k}^{\mathrm{step}}=L_kQ_{\eta,k}L_k^\top$传播。$Q_g,Q_a,Q_{wg},Q_{wa}$在这里都是连续谱密度块，不是传感器单次读数的方差。
 
 这个区间平均噪声模型也是近似。以一维$\dot v=n_a,\dot p=v$为例，精确连续白噪声积分给出
-\[
- Q_{pv}=q_a\begin{bmatrix}h^3/3&h^2/2\\h^2/2&h\end{bmatrix},
-\]
-而使用一个恒定区间平均噪声并代入$\frac12n_ah^2$，位置方差为$q_ah^3/4$。差别来自区间内噪声的时间结构。需要更精确传播时，应使用式\eqref{eq:eskf-Qd}或与更高阶积分器一致的噪声离散模型，不能仅靠改一个时间因子宣称精确。
 
-这就具体实现了第七章“传播已有不确定性，再加入本步噪声”的两项计算。改变数值积分器时，需要重新求它对状态和噪声的微分；协方差递推的形式仍然保持不变。
+\begin{equation*}
+Q_{pv}=q_a\begin{bmatrix}h^3/3&h^2/2\\h^2/2&h\end{bmatrix},
+\end{equation*}
+
+而使用一个恒定区间平均噪声并代入$\frac12n_ah^2$，位置方差为$q_ah^3/4$。差别来自区间内噪声的时间结构。需要更精确传播时，应使用式\eqref{eq-eskf-qd}或与更高阶积分器一致的噪声离散模型，不能仅靠改一个时间因子宣称精确。
+
+这就具体实现了第八章"传播已有不确定性，再加入本步噪声"的两项计算。改变数值积分器时，需要重新求它对状态和噪声的微分；协方差递推的形式仍然保持不变。
 
 \section{ESKF：观测微分与卡尔曼更新的来源}
-\label{sec:eskf-observation-derivation}
 
-这一节分别计算式\eqref{eq:intuition-observation}中的$H$，并推导式\eqref{eq:intuition-gain}和式\eqref{eq:intuition-joseph}。前者来自几何映射的微分，后两者来自线性高斯模型的条件分布，作用不同。
+这一节分别计算式\eqref{eq-intuition-observation}中的$H$，并推导式\eqref{eq-intuition-gain}和式\eqref{eq-intuition-joseph}。前者来自几何映射的微分，后两者来自线性高斯模型的条件分布，作用不同。
 
 预测得到一条名义轨迹和它附近的误差分布。现在外部观测到来，我们先问：如果名义状态正确，传感器本应看到什么？实际观测与这个预测之间的差，才是本次需要解释的信息。
-
 
 \subsection{先定义创新，再线性化误差}
 
 设欧氏观测为
-\[
- z=h(x)+v_z,\qquad v_z\sim\mathcal N(0,V),
-\]
+
+\begin{equation*}
+z=h(x)+v_z,\qquad v_z\sim\mathcal N(0,V),
+\end{equation*}
+
 其中$V$是观测噪声协方差，与预测误差独立。为了避免与旋转矩阵$R$冲突，本章用$V$表示观测协方差。预测观测和创新为
-\[
- \hat z=h(\hat x^-),\qquad r=z-\hat z.
-\]
+
+\begin{equation*}
+\hat z=h(\hat x^-),\qquad r=z-\hat z.
+\end{equation*}
+
 将$x=\hat x^-\oplus\delta x$代入，得到
-\[
- h(\hat x^-\oplus\delta x)
+
+\begin{equation*}
+h(\hat x^-\oplus\delta x)
  \simeq h(\hat x^-)+H\delta x,
  \qquad
  H=\left.\frac{\partial h(\hat x^-\oplus\delta x)}{\partial\delta x}
    \right|_{\delta x=0}.
-\]
+\end{equation*}
+
 于是创新模型为
-\[
- \boxed{r\simeq H\delta x+v_z.}
-\]
+
+\begin{equation*}
+\boxed{r\simeq H\delta x+v_z.}
+\end{equation*}
+
 $H$对误差坐标求导，维数为$m\times15$，不是对旋转矩阵九个元素直接求导得到的矩阵。
 
-这里的求导顺序与第五章一致：先从误差向量$\delta x$生成合法状态$\hat x^-\oplus\delta x$，再通过$h$得到观测，最后对这个复合函数求导。$H$的每一列回答“沿这一种状态误差方向稍微偏一点，预测观测会怎样变”。
+这里的求导顺序与第\ref{chap:md-06}章一致：先从误差向量$\delta x$生成合法状态$\hat x^-\oplus\delta x$，再通过$h$得到观测，最后对这个复合函数求导。$H$的每一列回答"沿这一种状态误差方向稍微偏一点，预测观测会怎样变"。
 
 一维位置例子中$h(p)=p$，所以$H=1$，关系退化为$r=\delta p+v_z$；后面的路标例子则会把姿态和位置的影响分别算出来。
-
 
 \subsection{创新协方差与交叉协方差}
 
 创新中包含两种不确定来源：$H\delta x$来自预测状态，$v_z$来自这次测量。独立且零均值时，两者的协方差相加。状态误差与创新之间的共同变化则来自它们共享的$\delta x$：
-\[
- \mathbb E[\delta x\,r^\top]
+
+\begin{equation*}
+\mathbb E[\delta x\,r^\top]
  =\mathbb E[\delta x(H\delta x+v_z)^\top]
  =P^-H^\top.
-\]
+\end{equation*}
+
 在$\delta x\sim\mathcal N(0,P^-)$的近似下，
-\[
- S=HP^-H^\top+V,
+
+\begin{equation*}
+S=HP^-H^\top+V,
  \qquad \operatorname{Cov}(\delta x,r)=P^-H^\top.
-\]
+\end{equation*}
+
 因此近似联合分布为
-\[
- \begin{bmatrix}\delta x\\r\end{bmatrix}
+
+\begin{equation*}
+\begin{bmatrix}\delta x\\r\end{bmatrix}
  \sim\mathcal N\left(0,
  \begin{bmatrix}P^-&P^-H^\top\\HP^-&S\end{bmatrix}\right).
-\]
+\end{equation*}
+
 即使某个状态块在$H$中的列为零，只要它与被观测状态存在交叉协方差，观测仍可能间接修正它。例如路标观测不直接测量陀螺偏置，但多次运动传播会建立姿态与偏置之间的相关性。
 
 \subsection{观测本身在流形上时}
 
 若观测是旋转，不能套用矩阵相减。可以先选相对旋转，再取局部对数，例如
-\[
- r=\Log(h(\hat x^-)^\top Z)^\vee.
-\]
+
+\begin{equation*}
+r=\mathop{\mathrm{Log}}(h(\hat x^-)^\top Z)^\vee.
+\end{equation*}
+
 随后在一致的局部噪声与误差约定下推导创新线性化。创新定义、$H$和$V$必须描述同一个局部随机向量。本章后面的具体案例使用欧氏观测，使滤波主线不被额外的观测流形参数化打断。
 
 \subsection{从局部后验的平方项推出增益}
 
 暂时假设$P^-$与$V$正定。固定已经收到的创新$r$，由局部高斯先验与似然，误差后验满足
-\[
- p(\delta x\mid r)\propto
+
+\begin{equation*}
+p(\delta x\mid r)\propto
  \exp\left[-\tfrac12\left(
  \delta x^\top(P^-)^{-1}\delta x
  +(r-H\delta x)^\top V^{-1}(r-H\delta x)\right)\right].
-\]
+\end{equation*}
+
 先展开观测项中关于$\delta x$的二次式：
 
-\[
+\begin{equation*}
 \begin{aligned}
  &(r-H\delta x)^\top V^{-1}(r-H\delta x)\\
  &\quad=r^\top V^{-1}r
        -2\delta x^\top H^\top V^{-1}r
        +\delta x^\top H^\top V^{-1}H\delta x.
 \end{aligned}
-\]
+\end{equation*}
+
 其中$r$已是给定数据，第一项不随待估误差变化。把最后一项与先验的二次项合并，再收集线性项，得到
 
-\[
- \Lambda_u=(P^-)^{-1}+H^\top V^{-1}H,
+\begin{equation*}
+\Lambda_u=(P^-)^{-1}+H^\top V^{-1}H,
  \qquad b=H^\top V^{-1}r.
-\]
+\end{equation*}
+
 配方后得到
-\[
- P_u=\Lambda_u^{-1},\qquad
+
+\begin{equation*}
+P_u=\Lambda_u^{-1},\qquad
  d:=\widehat{\delta x}=\mathbb E[\delta x\mid r]=P_uH^\top V^{-1}r.
-\]
+\end{equation*}
 
 这一步是在误差坐标中完成高斯配方：令二次函数梯度为零，得到$\Lambda_ud=b$；二次曲率$\Lambda_u$的逆给出后验协方差。为了避免对整个状态维度的矩阵求逆，把结果改写成对观测维度的矩阵$S$求解。
 
 由矩阵求逆恒等式，
-\[
- P_uH^\top V^{-1}
+
+\begin{equation*}
+P_uH^\top V^{-1}
  =P^-H^\top(HP^-H^\top+V)^{-1}.
-\]
+\end{equation*}
+
 因此
-\[
- \boxed{K=P^-H^\top S^{-1},\qquad \widehat{\delta x}=d=Kr,\qquad
+
+\begin{equation*}
+\boxed{K=P^-H^\top S^{-1},\qquad \widehat{\delta x}=d=Kr,\qquad
  P_u=P^--P^-H^\top S^{-1}HP^-.}
-\]
+\end{equation*}
+
 增益把观测创新转换为状态误差修正。它同时利用先验置信度、观测置信度和二者之间的相关结构。实际计算通过分解$S$求解线性方程，不显式形成逆矩阵。即使$P^-$只有半正定，只要$S$可逆，增益形式仍可用于相应的高斯条件更新。
 
 \subsection{Joseph形式从误差展开得到}
 
 线性模型中，更新后的中心化误差为
-\[
- \delta x-d=(I-KH)\delta x-Kv_z.
-\]
+
+\begin{equation*}
+\delta x-d=(I-KH)\delta x-Kv_z.
+\end{equation*}
+
 利用旧误差与观测噪声独立，得到
-\[
- \boxed{P_u=(I-KH)P^-(I-KH)^\top+KVK^\top.}
-\]
+
+\begin{equation*}
+\boxed{P_u=(I-KH)P^-(I-KH)^\top+KVK^\top.}
+\end{equation*}
+
 这就是Joseph形式。在精确代数与上述最优$K$下，它与简化式$(I-KH)P^-$等价；数值上它更容易保持对称半正定结构。
 
 此时$d$仍是旧参考点$\hat x^-$附近的误差均值，$P_u$是该旧误差坐标中围绕$d$的后验协方差。它们尚未完成流形上的状态更新。
 
 回到一维例子，旧参考是$10$，更新后误差分布的中心是$d=1.6$，方差为$0.8$。这也可以描述为位置分布以$11.6$为中心，但目前保存的误差坐标仍然以$10$为零点。下一节就是把这两种描述正式接起来。
 
-
 \section{ESKF：注入之后的重置Jacobian}
-\label{sec:eskf-reset}
 
-这里计算式\eqref{eq:intuition-reset}中的$G_{\mathrm{reset}}$。第七章已经用移动零点的图解释了目的：$P_u$属于旧误差坐标，需要把同一后验改用新参考状态附近的坐标表示。下面只推导这次换元。
+这里计算式\eqref{eq-intuition-reset}中的$G_{\mathrm{reset}}$。第八章已经用移动零点的图解释了目的：$P_u$属于旧误差坐标，需要把同一后验改用新参考状态附近的坐标表示。下面只推导这次换元。
 
 \subsection{把修正注入名义状态}
 
 将$d=(d_\theta,d_p,d_v,d_{b_g},d_{b_a})$注入：
-\[
+
+\begin{equation*}
 \begin{aligned}
- \hat R^+&=\hat R^-\Exp(d_\theta^\wedge),&
+ \hat R^+&=\hat R^-\mathop{\mathrm{Exp}}(d_\theta^\wedge),&
  \hat p^+&=\hat p^-+d_p,\\
  \hat v^+&=\hat v^-+d_v,&
  \hat b_g^+&=\hat b_g^-+d_{b_g},\\
  &&\hat b_a^+&=\hat b_a^-+d_{b_a}.
 \end{aligned}
-\]
+\end{equation*}
+
 注入将局部向量变成合法状态。随后要以$\hat x^+$为新的参考，重新定义真实状态的误差。
 
 \subsection{旋转误差坐标为什么改变}
 
 同一真实姿态满足
-\[
- R=\hat R^-\Exp(\delta\theta_{\mathrm{old}}^\wedge)
-  =\hat R^+\Exp(\delta\theta_{\mathrm{new}}^\wedge),
-\]
+
+\begin{equation*}
+R=\hat R^-\mathop{\mathrm{Exp}}(\delta\theta_{\mathrm{old}}^\wedge)
+  =\hat R^+\mathop{\mathrm{Exp}}(\delta\theta_{\mathrm{new}}^\wedge),
+\end{equation*}
+
 因此
-\[
- \delta\theta_{\mathrm{new}}
- =\Log\left(\Exp(-d_\theta^\wedge)
-            \Exp(\delta\theta_{\mathrm{old}}^\wedge)\right)^\vee.
-\]
+
+\begin{equation*}
+\delta\theta_{\mathrm{new}}
+ =\mathop{\mathrm{Log}}\left(\mathop{\mathrm{Exp}}(-d_\theta^\wedge)
+            \mathop{\mathrm{Exp}}(\delta\theta_{\mathrm{old}}^\wedge)\right)^\vee.
+\end{equation*}
+
 令$\delta\theta_{\mathrm{old}}=d_\theta+e_\theta$，围绕后验均值$d_\theta$线性化。
 
 这里$e_\theta$是旧误差坐标中围绕后验均值的剩余偏离，协方差正是$P_u$的相应块。要把它变成新参考点的误差，需要一个局部换元。
 
-第五章的右Jacobian$J_r(\phi)$回答如下问题：在旋转向量$\phi$上加一小段$\epsilon$，对应在$\Exp(\phi^\wedge)$右侧乘上多大的小旋转？定义关系为
-\[
- \Exp((\phi+\epsilon)^\wedge)
- =\Exp(\phi^\wedge)\Exp((J_r(\phi)\epsilon)^\wedge)
-   +O(\|\epsilon\|^2).
-\]
-两侧描述同一个变化，左侧用旋转向量加法，右侧用已有旋转后的局部小旋转。$J_r(0)=I$；小角度时$J_r(\phi)\simeq I-\tfrac12\phi^\wedge$。闭式表达及小角度展开见第\ref{sec:eskf-discretization-detail}节。
-由右Jacobian的定义，
-\[
- \Exp((d_\theta+e_\theta)^\wedge)
- \simeq\Exp(d_\theta^\wedge)
-        \Exp((J_r(d_\theta)e_\theta)^\wedge),
-\]
-故
-\[
- \boxed{\delta\theta_{\mathrm{new}}\simeq J_r(d_\theta)e_\theta.}
-\]
+第\ref{chap:md-06}章的右Jacobian$J_r(\phi)$回答如下问题：在旋转向量$\phi$上加一小段$\epsilon$，对应在$\mathop{\mathrm{Exp}}(\phi^\wedge)$右侧乘上多大的小旋转？定义关系为
 
-这也可以直接从乘法消去看出：将右Jacobian展开式代入旧新误差关系，左侧的$\Exp(-d_\theta^\wedge)$与$\Exp(d_\theta^\wedge)$相消，只剩$\Exp((J_r(d_\theta)e_\theta)^\wedge)$。再取局部对数，得到上式。
+\begin{equation*}
+\mathop{\mathrm{Exp}}((\phi+\epsilon)^\wedge)
+ =\mathop{\mathrm{Exp}}(\phi^\wedge)\mathop{\mathrm{Exp}}((J_r(\phi)\epsilon)^\wedge)
+   +O(\|\epsilon\|^2).
+\end{equation*}
+
+两侧描述同一个变化，左侧用旋转向量加法，右侧用已有旋转后的局部小旋转。$J_r(0)=I$；小角度时$J_r(\phi)\simeq I-\tfrac12\phi^\wedge$。闭式表达及小角度展开见第\hyperref[chap:md-09]{ESKF：把连续误差变成一步传播与协方差}节。 由右Jacobian的定义，
+
+\begin{equation*}
+\mathop{\mathrm{Exp}}((d_\theta+e_\theta)^\wedge)
+ \simeq\mathop{\mathrm{Exp}}(d_\theta^\wedge)
+        \mathop{\mathrm{Exp}}((J_r(d_\theta)e_\theta)^\wedge),
+\end{equation*}
+
+故
+
+\begin{equation*}
+\boxed{\delta\theta_{\mathrm{new}}\simeq J_r(d_\theta)e_\theta.}
+\end{equation*}
+
+这也可以直接从乘法消去看出：将右Jacobian展开式代入旧新误差关系，左侧的$\mathop{\mathrm{Exp}}(-d_\theta^\wedge)$与$\mathop{\mathrm{Exp}}(d_\theta^\wedge)$相消，只剩$\mathop{\mathrm{Exp}}((J_r(d_\theta)e_\theta)^\wedge)$。再取局部对数，得到上式。
 
 在小修正下，$J_r(d_\theta)\simeq I-\frac12d_\theta^\wedge$。这个负号由本章采用的右侧误差约定决定。
 
 欧氏误差满足$\delta p_{\mathrm{new}}=\delta p_{\mathrm{old}}-d_p$，速度与偏置类似。因此整体重置Jacobian及协方差为
-\[
- G_{\mathrm{reset}}=\operatorname{diag}(J_r(d_\theta),I,I,I,I),
-\]
-\[
- \boxed{P^+=G_{\mathrm{reset}}P_uG_{\mathrm{reset}}^\top.}
-\]
+
+\begin{equation*}
+G_{\mathrm{reset}}=\operatorname{diag}(J_r(d_\theta),I,I,I,I),
+\end{equation*}
+
+\begin{equation*}
+\boxed{P^+=G_{\mathrm{reset}}P_uG_{\mathrm{reset}}^\top.}
+\end{equation*}
+
 重置也会改变姿态与其他状态的交叉协方差，不能只修正左上角的姿态方差块。
 
 例如姿态与位置的后验交叉块为$P_{u,\theta p}$，重置后变为
-\[
- P^+_{\theta p}=J_r(d_\theta)P_{u,\theta p}.
-\]
-位置误差采用的世界系加法坐标没有旋转，但它与姿态误差的相关关系仍需随姿态误差坐标一起变换。
 
+\begin{equation*}
+P^+_{\theta p}=J_r(d_\theta)P_{u,\theta p}.
+\end{equation*}
+
+位置误差采用的世界系加法坐标没有旋转，但它与姿态误差的相关关系仍需随姿态误差坐标一起变换。
 
 \subsection{清零的是误差均值的记录}
 
-在线性化模型下，新误差均值回到零，于是滤波器保存$(\hat x^+,P^+)$开始下一轮。“误差清零”不是说真实状态已经完全正确，也不是把协方差置零。剩余不确定性仍由$P^+$描述；非线性重置后出现的高阶均值项被局部近似忽略。
+在线性化模型下，新误差均值回到零，于是滤波器保存$(\hat x^+,P^+)$开始下一轮。"误差清零"不是说真实状态已经完全正确，也不是把协方差置零。剩余不确定性仍由$P^+$描述；非线性重置后出现的高阶均值项被局部近似忽略。
 
 观测更新、注入和重置可按下面的对象链理解：
-\[
- (\hat x^-,P^-)
+
+\begin{equation*}
+(\hat x^-,P^-)
  \longrightarrow(d,P_u)
  \longrightarrow\hat x^+
  \longrightarrow(0,P^+).
-\]
+\end{equation*}
+
 其中第二步中的协方差还属于旧误差坐标，最后一步才搬到新误差坐标。对纯欧氏加法状态，重置Jacobian为$I$，所以普通卡尔曼滤波中这一步往往不显眼。
 
 \section{ESKF：把完整推导用于一次路标观测}
-\label{sec:eskf-landmark-example}
 
-第七章用$h(x)=R^\top(\ell-p)$说明观测模型。现在把它的$H$具体算出，再走一次增益、注入和重置，检查上述工具怎样用于同一个几何观测。
+第八章用$h(x)=R^\top(\ell-p)$说明观测模型。现在把它的$H$具体算出，再走一次增益、注入和重置，检查上述工具怎样用于同一个几何观测。
 
 \subsection{已知路标的相对位置观测}
 
 设已知世界系路标$\ell\in\mathbb R^3$，传感器与机体系重合，测到机体系中的三维相对位置：
-\[
- z=R^\top(\ell-p)+v_z.
-\]
+
+\begin{equation*}
+z=R^\top(\ell-p)+v_z.
+\end{equation*}
+
 IMU先按照前面的名义传播和协方差传播得到$(\hat x^-,P^-)$。为简化记号，本节在求导中省略上标$-$，记$\hat z=\hat R^\top(\ell-\hat p)$。代入右侧扰动后，
-\[
+
+\begin{equation*}
 \begin{aligned}
  h(\hat x\oplus\delta x)
- &=\Exp(-\delta\theta^\wedge)\hat R^\top
+ &=\mathop{\mathrm{Exp}}(-\delta\theta^\wedge)\hat R^\top
                       (\ell-\hat p-\delta p)\\
  &\simeq\hat z+\hat z^\wedge\delta\theta-\hat R^\top\delta p.
 \end{aligned}
-\]
+\end{equation*}
+
 所以按$(\theta,p,v,b_g,b_a)$排列，
-\[
- \boxed{H=\begin{bmatrix}\hat z^\wedge&-\hat R^\top&0&0&0\end{bmatrix}.}
-\]
+
+\begin{equation*}
+\boxed{H=\begin{bmatrix}\hat z^\wedge&-\hat R^\top&0&0&0\end{bmatrix}.}
+\end{equation*}
+
 姿态块的正号来自$-\delta\theta\times\hat z=\hat z\times\delta\theta$。如果是相机像素观测，只需继续复合投影函数$\pi$，在有效深度范围内用$D\pi(\hat z)H$得到像素Jacobian，并在像素空间使用对应噪声协方差。
 
 \subsection{一个能看出更新方向的数值片段}
@@ -561,1226 +659,68 @@ IMU先按照前面的名义传播和协方差传播得到$(\hat x^-,P^-)$。为�
 取$\hat R=I$、$\hat p=0$、$\ell=(1,0,0)^\top$，收到$z=(1,0.02,0)^\top$米，则$r=(0,0.02,0)^\top$。为突出相关方向，假设姿态方差为$0.01I$（弧度平方），位置方差为$0.04I$（米平方），两者当前无交叉协方差，观测方差为$V=0.01I$（米平方）。其他状态在本片段中与姿态、位置不相关。
 
 预测路标距离为一米，$y$方向的创新方差为
-\[
- S_{yy}=0.01+0.04+0.01=0.06\ \mathrm{m}^2.
-\]
+
+\begin{equation*}
+S_{yy}=0.01+0.04+0.01=0.06\ \mathrm{m}^2.
+\end{equation*}
+
 因此本次更新的非零误差均值为
-\[
- d_{\theta,z}=-\frac{0.01}{0.06}\,0.02
+
+\begin{equation*}
+d_{\theta,z}=-\frac{0.01}{0.06}\,0.02
              \approx-0.00333\ \mathrm{rad},
  \qquad
  d_{p,y}=-\frac{0.04}{0.06}\,0.02
              \approx-0.01333\ \mathrm m.
-\]
+\end{equation*}
+
 路标在机体系中比预测更偏向$+y$，可以由机器人朝$-y$移动或绕$z$轴顺时针转动解释；两种解释按照先验不确定性分担修正。观测还会在位置和姿态之间建立新的相关性，所以之后不能继续保持它们完全独立。
 
 \subsection{完整循环}
 
 一次带路标观测的滤波循环为：
+
 \begin{enumerate}
+
 \item 用每个IMU采样去偏置，传播名义状态；从同一模型计算$\Phi_k,Q_{d,k}$并传播$P$。
+
 \item 外部观测到来时计算$\hat z,r,H,S$，按需要做创新门限检查。
+
 \item 通过线性求解计算$K=P^-H^\top S^{-1}$，得到$d=Kr$和Joseph协方差$P_u$。
+
 \item 将$d$通过右侧旋转更新与欧氏加法注入名义状态。
+
 \item 用$G_{\mathrm{reset}}$变换整个$P_u$，把局部误差均值记录重置为零。
+
 \end{enumerate}
+
 一个路标的一次三维观测不足以唯一确定全部姿态与位置，更不能直接观测所有速度与偏置。多个路标、跨时刻运动和先验共同决定可观性。
 
 若路标未知，也可扩展$x$加入$\ell_1,\ldots,\ell_N$，其误差采用世界系加法。静态地图点的名义传播不变，观测对当前路标的Jacobian为$\hat R^\top$；必须维护机器人与地图之间的交叉协方差，并在路标初始化时考虑由观测与机器人状态带来的相关性。仅把地图点追加到数组而忽略这些相关性，并没有得到完整的EKF-SLAM。
 
-至此，第七章ESKF流程中保留整体写法的各个矩阵，都有了相应的计算来源。下一组推导保持同样的误差思想，但把参考对象从当前状态换成起点固定的区间相对运动。
+至此，第八章ESKF流程中保留整体写法的各个矩阵，都有了相应的计算来源。下一章将沿用局部误差与协方差的思想，但把参考对象换成起点固定的一段IMU相对运动。
 
-\section{预积分：相对量定义为什么消去初始导航状态}
-\label{sec:preint-continuous-derivation}
+\section{从区域概率回看ESKF}
 
-这一节推导式\eqref{eq:intuition-preint-step}背后的连续运动。由第\ref{sec:preint-relative-quantities}节的定义，固定起点$t_i$，令$\tau=t-t_i$：
-\[
-\begin{aligned}
- \Delta R_i(t)&=R_i^\top R(t),\\
- \Delta v_i(t)&=R_i^\top(v(t)-v_i-g_W\tau),\\
- \Delta p_i(t)&=R_i^\top(p(t)-p_i-v_i\tau-\tfrac12g_W\tau^2).
-\end{aligned}
-\]
-它们在$t_i$的值为$(I,0,0)$，逆向恢复绝对运动就是式\eqref{eq:preint-reconstruction}。现在只对当前时间$t$求导，$R_i,v_i,p_i$视为固定参数，观察初值与重力如何抵消。
-
-\subsection{相对旋转动力学}
-
-由定义
-\[
-    \Delta R_i(t)=R_i^\top R(t)
-\]
-直接求导。$R_i=R(t_i)$对当前积分变量$t$而言是常量，因此
-\[
-\begin{aligned}
-    \dot{\Delta R}_i(t)
-    &=R_i^\top\dot R(t)\\
-    &=R_i^\top R(t)\omega(t)^\wedge\\
-    &=\Delta R_i(t)\omega(t)^\wedge.
-\end{aligned}
-\]
-代入测量模型得到
-\[
-\boxed{
-    \dot{\Delta R}_i(t)
-    =\Delta R_i(t)
-    \bigl(\omega_m(t)-b_g(t)-n_g(t)\bigr)^\wedge.
-}
-\]
-右端不再显式含有$R_i$。已经积累的相对旋转$\Delta R_i(t)$与当前角速度，足以决定下一瞬间的相对旋转变化。
-
-\subsection{相对速度动力学}
-
-对相对速度求导：
-\[
-\begin{aligned}
-    \dot{\Delta v}_i(t)
-    &=R_i^\top\frac{d}{dt}
-      \bigl(v(t)-v_i-g_W\tau\bigr)\\
-    &=R_i^\top\bigl(\dot v(t)-g_W\bigr).
-\end{aligned}
-\]
-因为$\dot v-g_W=Ra$，所以
-\[
-\begin{aligned}
-    \dot{\Delta v}_i(t)
-    &=R_i^\top R(t)a(t)\\
-    &=\Delta R_i(t)a(t).
-\end{aligned}
-\]
-代入加速度计模型：
-\[
-\boxed{
-    \dot{\Delta v}_i(t)
-    =\Delta R_i(t)
-    \bigl(a_m(t)-b_a(t)-n_a(t)\bigr).
-}
-\]
-初始速度和重力已经从相对量定义中消失；相对速度只由相对旋转和区间内比力驱动。
-
-\subsection{相对位置动力学}
-
-对相对位置求导：
-\[
-\begin{aligned}
-    \dot{\Delta p}_i(t)
-    &=R_i^\top
-      \frac{d}{dt}
-      \left(
-          p(t)-p_i-v_i\tau-\frac12g_W\tau^2
-      \right)\\
-    &=R_i^\top
-      \bigl(\dot p(t)-v_i-g_W\tau\bigr)\\
-    &=R_i^\top
-      \bigl(v(t)-v_i-g_W\tau\bigr)\\
-    &=\Delta v_i(t).
-\end{aligned}
-\]
-因此
-\[
-\boxed{
-    \dot{\Delta p}_i(t)=\Delta v_i(t).
-}
-\]
-
-\subsection{连续预积分系统}
-
-将三条方程合并，得到预积分的连续时间相对动力学：
-\[
-\boxed{
-\begin{aligned}
-    \dot{\Delta R}_i
-    &=\Delta R_i(\omega_m-b_g-n_g)^\wedge,\\
-    \dot{\Delta v}_i
-    &=\Delta R_i(a_m-b_a-n_a),\\
-    \dot{\Delta p}_i
-    &=\Delta v_i,
-\end{aligned}
-\qquad
-\begin{aligned}
-    \Delta R_i(t_i)&=I,\\
-    \Delta v_i(t_i)&=0,\\
-    \Delta p_i(t_i)&=0.
-\end{aligned}
-}
-\]
-这组系统才是预积分最核心的数学对象。它的初值是固定的单位相对状态，右端只含区间内IMU输入、偏置和噪声，不再显式依赖待优化的$R_i,v_i,p_i$。
-
-\begin{proposition}[相对运动消去关键帧初始导航状态]
-固定区间$[t_i,t_j]$内可用于经典积分的理想IMU输入，或固定所选离散噪声模型下的输入与偏置序列。由上述初值问题得到的
-\[
-    \Delta R_i(t),\Delta v_i(t),\Delta p_i(t)
-\]
-不显式依赖$R_i,v_i,p_i$。绝对状态对初值的依赖只在从相对量回收绝对状态时重新出现。
-\end{proposition}
-
-这里“不显式依赖”不表示所有物理量都与参考系无关。相对速度和相对位置仍然选择了$B_i$作为表达坐标系；改变关键帧$i$的物理姿态会改变绝对状态关系，但预积分初值问题本身始终从$(I,0,0)$出发。
-
-%——————————————————————————————————%
-
-\subsection{较早的加速度为什么对位置影响更久}
-
-在理想确定性输入下，连续相对系统还给出
-\[
- \Delta v_i(t)=\int_{t_i}^{t}\Delta R_i(s)a(s)\,ds,
- \qquad
- \Delta p_i(t)=\int_{t_i}^{t}(t-s)\Delta R_i(s)a(s)\,ds.
-\]
-较早的比力不仅改变速度，还会在剩余时间内持续积累位置变化，因此位置积分出现权重$t-s$。
-
-例如一小段加速度在$s$附近带来速度变化$\delta v$。从$s$到$t$，这一速度变化还持续了$t-s$，因此对位置的贡献近似为$(t-s)\delta v$。把所有小段相加，便得到第二个积分。相同大小的加速度作用，越早发生，通常越有时间影响终点位置。
-
-
-\begin{bookexample}{静止并不意味着三个预积分量都为零}
-静止时$\omega=0$、$a=-R_i^\top g_W$。于是
-\[
- \Delta R_{ij}=I,\quad
- \Delta v_{ij}=-R_i^\top g_WT_{ij},\quad
- \Delta p_{ij}=-\tfrac12R_i^\top g_WT_{ij}^2.
-\]
-代回式\eqref{eq:preint-reconstruction}，比力积分与显式重力项抵消，恢复$v_j=0$、$p_j=p_i$。不能在预积分递推中再随意从加速度计读数扣除一次重力。
-\end{bookexample}
-
-\section{预积分：从连续系统得到所选离散递推}
-\label{sec:preint-discrete-derivation}
-
-这一节补出式\eqref{eq:intuition-preint-step}中指数更新、一次与二次时间项的来源。$k$表示高频采样区间，波浪线仍表示在固定偏置处由读数计算的名义量；从$i$累积到$k$，最后令$k=j$得到区间终点测量。
-
-\subsection{采样、线性化偏置与名义输入}
-
-设IMU采样时刻为
-\[
-    t_i,t_{i+1},\ldots,t_j,
-    \qquad
-    \Delta t_k:=t_{k+1}-t_k.
-\]
-在预积分区间内选择偏置线性化点。为简洁，以下省略固定起点下标$i$，记
-\[
-    \bar b_g:=\bar b_{g,i},\qquad\bar b_a:=\bar b_{a,i}.
-\]
-最简单的零阶保持假设认为，在每个$[t_k,t_{k+1})$内，测量与线性化偏置保持常量。定义名义去偏置输入
-\[
-    \widehat\omega_k:=\omega_{m,k}-\bar b_g,
-    \qquad
-    \widehat a_k:=a_{m,k}-\bar b_a,
-\]
-以及旋转向量
-\[
-    \phi_k:=\widehat\omega_k\Delta t_k.
-\]
-这四个符号表示同一个计算链条：
-\[
-\begin{array}{c|c}
-\text{符号} & \text{含义}\\ \hline
-\widehat\omega_k & \text{第$k$个区间内采用的角速度}\\
-\Delta t_k & \text{第$k$个区间的持续时间}\\
-\phi_k=\widehat\omega_k\Delta t_k & \text{这一小段时间的角度增量，属于$\R^3$}\\
-A_k & \text{把角度增量变成旋转矩阵后的结果}
-\end{array}
-\]
-因此，$\phi_k$的方向与$\widehat\omega_k$相同，模长$\|\phi_k\|$就是这一小段时间内转过的角度。$\phi_k$不是旋转矩阵；真正的区间旋转由
-\[
-    A_k=\Exp(\phi_k^\wedge)\in\SO(3)
-\]
-给出。
-名义预积分量用波浪线标记，并以
-\[
-    \widetilde{\Delta R}_{i,i}=I,
-    \qquad
-    \widetilde{\Delta v}_{i,i}=0,
-    \qquad
-    \widetilde{\Delta p}_{i,i}=0
-\]
-初始化。下标$(i,k)$表示“从关键帧$i$预积分到采样时刻$k$”。
-
-
-注意$\widehat a_k$是从读数中扣除偏置后的比力，尚未额外减去重力；重力已经由相对量定义中的解析项单独处理。帽号表示采用的输入，波浪线表示用这些输入累积出的预积分结果。
-
-\subsection{旋转递推}
-
-在单个采样区间内，把$\widehat\omega_k$视为常量，旋转相对运动的指数更新为
-\[
-\boxed{
-    \widetilde{\Delta R}_{i,k+1}
-    =\widetilde{\Delta R}_{i,k}\Exp(\phi_k^\wedge).
-}
-\]
-记
-\[
-    A_k:=\Exp(\phi_k^\wedge)\in\SO(3),
-\]
-则$\widetilde{\Delta R}_{i,k+1}=\widetilde{\Delta R}_{i,k}A_k$。
-
-输入一个$B_{k+1}$中的向量，先通过$A_k$转到$B_k$，再通过$\widetilde{\Delta R}_{i,k}$转到$B_i$，所以组合顺序是右乘$A_k$。矩阵从右向左作用于向量；随着时间推移，保存的矩阵乘积则在右边不断接上新的因子。
-每一步都由群乘法组成，所以只要初值在$\SO(3)$中，忽略浮点误差后所有递推结果也都在$\SO(3)$中。
-
-\subsection{速度与位置递推}
-
-每个$a_{m,k}$都沿当时的IMU轴表达。机器人在转动时，不同时间的三个读数分量并不对应同一组空间方向。先乘$\widetilde{\Delta R}_{i,k}$，把每一份比力都送到共同的$B_i$坐标，才可以逐项相加。
-
-
-对速度采用区间起点姿态近似
-\[
-    \Delta R_i(t)\widehat a_k
-    \approx
-    \widetilde{\Delta R}_{i,k}\widehat a_k,
-    \qquad t\in[t_k,t_{k+1}),
-\]
-即可积分得到
-\[
-\boxed{
-    \widetilde{\Delta v}_{i,k+1}
-    =\widetilde{\Delta v}_{i,k}
-    +\widetilde{\Delta R}_{i,k}\widehat a_k\Delta t_k.
-}
-\]
-再把区间内相对加速度视为常量，对位置作二次积分：
-\[
-\boxed{
-\begin{aligned}
-    \widetilde{\Delta p}_{i,k+1}
-    ={}&\widetilde{\Delta p}_{i,k}
-    +\widetilde{\Delta v}_{i,k}\Delta t_k\\
-    &+\frac12\widetilde{\Delta R}_{i,k}
-      \widehat a_k\Delta t_k^2.
-\end{aligned}
-}
-\]
-所以本章采用的基本离散递推为
-\[
-\boxed{
-\begin{aligned}
-    \widetilde{\Delta R}_{i,k+1}
-    &=\widetilde{\Delta R}_{i,k}\Exp(\phi_k^\wedge),\\
-    \widetilde{\Delta v}_{i,k+1}
-    &=\widetilde{\Delta v}_{i,k}
-      +\widetilde{\Delta R}_{i,k}\widehat a_k\Delta t_k,\\
-    \widetilde{\Delta p}_{i,k+1}
-    &=\widetilde{\Delta p}_{i,k}
-      +\widetilde{\Delta v}_{i,k}\Delta t_k
-      +\frac12\widetilde{\Delta R}_{i,k}
-       \widehat a_k\Delta t_k^2.
-\end{aligned}
-}
-\]
-
-
-第七章的两步采样例子正是逐次代入这三式。下面将同一递推展开，检查早期样本如何持续影响终点。
-
-把递推从$i$展开到$j$，可以得到与实现逐步累积完全等价的连乘、连加形式：
-\[
-\boxed{
-    \widetilde{\Delta R}_{ij}
-    =\prod_{k=i}^{j-1}A_k,
-}
-\]
-其中因子按时间从左到右排列，即
-\[
-    \prod_{k=i}^{j-1}A_k
-    :=A_iA_{i+1}\cdots A_{j-1}.
-\]
-速度与位置为
-\[
-\boxed{
-    \widetilde{\Delta v}_{ij}
-    =\sum_{k=i}^{j-1}
-      \widetilde{\Delta R}_{i,k}\widehat a_k\Delta t_k,
-}
-\]
-\[
-\boxed{
-    \widetilde{\Delta p}_{ij}
-    =\sum_{k=i}^{j-1}
-      \left(
-        \widetilde{\Delta v}_{i,k}\Delta t_k
-        +\frac12\widetilde{\Delta R}_{i,k}
-         \widehat a_k\Delta t_k^2
-      \right).
-}
-\]
-最后一式中的$\widetilde{\Delta v}_{i,k}$本身已经累积了此前所有加速度样本。因此，一个较早的比力样本不仅贡献当前区间的$\tfrac12\Delta t_k^2$项，还会通过后续的速度持续影响位置。这正对应上一节连续积分式中的剩余时间权重$t_j-s$。
-
-这些式子也再次说明，$\widetilde{\Delta v}_{ij}$与$\widetilde{\Delta p}_{ij}$不是通常所说的$v_j-v_i$和$p_j-p_i$。它们是在$B_i$中表达、剥离了关键帧初值和世界系重力解析项之后的积分量；只有放回$R_i,v_i,p_i,g_W$后，才恢复世界系状态变化。
-
-\subsection{这组递推精确了什么，又近似了什么}
-
-当$\widehat\omega_k$在区间内恒定时，旋转更新$A_k=\Exp(\phi_k^\wedge)$是该旋转子系统的精确区间传播。速度与位置公式则把旋转后的比力冻结在区间起点，因此一般只是低阶近似：即使$\widehat a_k$在机体系中恒定，只要刚体同时旋转，$B_i$中表达的$\Delta R_i(t)\widehat a_k$仍然会在区间内变化。
-
-更高精度实现可以采用：
-\begin{enumerate}
-    \item 中值积分，用相邻两个采样的平均角速度和平均比力；
-    \item 对$\Delta R_i(t)\widehat a_k$进行解析积分，引入旋转积分矩阵；
-    \item Runge--Kutta或其他适合流形状态的数值积分器；
-    \item 对原始IMU先完成时间同步、插值和传感器标定，再进行预积分。
-\end{enumerate}
-这些方法改变的是对同一连续相对运动的数值近似，不改变$\Delta R_i,\Delta v_i,\Delta p_i$的几何定义。
-
-\begin{bookexample}{不能混搭不同积分器的Jacobian}
-若名义量使用中值积分，而偏置Jacobian和协方差递推仍照搬区间起点公式，那么三者对应的就不是同一个离散一步映射。一个实现可以选择不同精度的积分器，但名义递推、偏置微分和噪声微分必须从同一个一步映射推导。
-\end{bookexample}
-
-%——————————————————————————————————%
-
-\begin{remark}[旋转必须按时间顺序复合]
-一般有
-\[
- \prod_{k=i}^{j-1}\Exp((\widehat\omega_k\Delta t_k)^\wedge)
- \ne\Exp\left(\left(\sum_{k=i}^{j-1}\widehat\omega_k\Delta t_k\right)^\wedge\right).
-\]
-只有这些增量可交换等特殊情形，才可以把旋转连乘压成一次向量求和后取指数。这里直接使用第五章关于非交换性和BCH的结论。
-\end{remark}
-
-\section{预积分：一步误差矩阵与联合协方差}
-\label{sec:preint-covariance}
-
-这一节计算式\eqref{eq:intuition-Sigma}中的$F_k,G_k$，并补齐包含偏置随机游走的十五维模型。它们都对上一节选定的离散递推求导；名义量和误差传播因此使用相同的近似。
-
-
-\subsection{先看姿态误差怎样传给平移}
-
-预积分由有噪声的IMU读数算出。陀螺仪读数偏一点，累计姿态便会偏一点；下一次把加速度计读数转到$B_i$时，所用方向也跟着偏。于是陀螺噪声可以间接造成速度与位置误差，而不只影响旋转。
-
-\begin{center}
-\begin{tikzpicture}[>=stealth,scale=1.05]
- \draw[->] (0,0)--(3.2,0) node[right] {水平};
- \draw[->] (0,0)--(0,2.8) node[above] {竖直};
- \draw[->,main,very thick] (0,0)--(0,2.2) node[left] {名义方向};
- \draw[->,red,very thick] (0,0)--(.55,2.2) node[right] {姿态偏差后的方向};
- \draw[dashed] (.55,2.2)--(.55,0);
- \draw[<->] (0,-.35)--node[below] {额外水平分量}(.55,-.35);
- \node[align=left,right] at (3.7,1.2) {方向误差先改变速度，\\速度误差再积累为位置误差。};
-\end{tikzpicture}
-\end{center}
-图中的两个箭头表示同一比力因姿态估计不同而得到的不同投影，长度仅作示意。第\ref{sec:eskf-error-dynamics}节的小倾角例子已经算出其一阶关系。本节把这种影响逐步累积到区间终点，并记录不同误差之间的相关性。
-
-\subsection{先固定偏置，分析测量噪声}
-
-
-先把区间偏置固定为线性化值，分析IMU测量噪声带来的九维误差；本节末再加入偏置随机游走。名义量由带噪读数计算而来，“名义递推中令噪声为零”只是计算时不再减去未知噪声，并不表示读数本身无噪声。以下推导描述同一个离散积分器中的局部随机误差，数值离散截断误差不自动包含在该协方差中。
-
-\subsection{理想相对量、名义测量与局部误差}
-
-在偏置等于线性化值的条件下，代入真实噪声样本的离散相对系统产生对应的理想量
-\[
-    \Delta R_{i,k},\Delta v_{i,k},\Delta p_{i,k}.
-\]
-但噪声$n_g,n_a$的具体实现未知，所以这些理想量不能直接由传感器读数精确算出。实际可计算的是：选择偏置线性化点，把测得的$\omega_m,a_m$代入名义递推，并令噪声为零后得到
-\[
-    \widetilde{\Delta R}_{i,k},
-    \widetilde{\Delta v}_{i,k},
-    \widetilde{\Delta p}_{i,k}.
-\]
-因此需要描述“理想相对量相对于名义预积分测量偏离了多少”。旋转误差仍然不能用矩阵相减表示，本章继续采用右侧局部误差：
-\[
-    \Delta R_{i,k}
-    =\widetilde{\Delta R}_{i,k}\Exp(\delta\theta_{i,k}^\wedge).
-\]
-速度和位置误差采用欧氏加法：
-\[
-    \Delta v_{i,k}
-    =\widetilde{\Delta v}_{i,k}+\delta v_{i,k},
-    \qquad
-    \Delta p_{i,k}
-    =\widetilde{\Delta p}_{i,k}+\delta p_{i,k}.
-\]
-将局部误差堆叠为
-\[
-    e_{i,k}
-    :=
-    \begin{bmatrix}
-        \delta\theta_{i,k}\\
-        \delta v_{i,k}\\
-        \delta p_{i,k}
-    \end{bmatrix}
-    \in\R^9.
-\]
-这里协方差描述的是这组局部坐标的不确定性，而不是$3\times3$旋转矩阵九个元素的普通协方差。
-
-在一阶近似下，$e_{i,k}$是由零均值IMU噪声线性驱动的随机向量。所谓“预积分协方差”，就是这组局部误差坐标的协方差；它随后决定同一个局部坐标残差在优化中的权重。
-
-
-误差按$(\theta,v,p)$排列，故九维预积分协方差记为
-\[
- \Sigma_{i,k}=\operatorname{Cov}(e_{i,k}).
-\]
-它描述这段相对测量的误差；第七章的$P_k$描述当前导航状态的误差。两者都由局部向量的二阶矩得到，但参照对象不同。完整导航状态仍按$(\theta,p,v,b_g,b_a)$排序，后面拼接矩阵时分别标明行列。
-
-其中$\delta v,\delta p$沿用$B_i$的向量坐标；$\delta\theta$的坐标则由上面的右侧旋转扰动关系规定。误差向量把这些坐标排在一起，不意味着旋转误差也改成了左侧或世界系表达。
-
-\subsection{单步旋转误差}
-
-令$n_{g,k}$是在区间$[t_k,t_{k+1})$内采用的离散陀螺噪声样本。含噪声的单步输入为
-\[
-    \phi_k-n_{g,k}\Delta t_k.
-\]
-由第\ref{sec:eskf-discretization-detail}节的右Jacobian定义，
-\[
-    \Exp\bigl((\phi_k-n_{g,k}\Delta t_k)^\wedge\bigr)
-    \simeq
-    A_k\Exp\bigl((-J_r(\phi_k)n_{g,k}\Delta t_k)^\wedge\bigr).
-\]
-再将旧误差穿过$A_k$，得到
-
-\[
- \Exp(\delta\theta_{i,k}^\wedge)A_k
- =A_k\Exp((A_k^\top\delta\theta_{i,k})^\wedge).
-\]
-这一等式先把旧误差换到更新后旋转的右侧坐标；再把本步噪声引起的小旋转加进去，并舍去两个小旋转的二阶乘积，就得到
-
-\[
-\boxed{
-    \delta\theta_{i,k+1}
-    \simeq
-    A_k^\top\delta\theta_{i,k}
-    -J_r(\phi_k)n_{g,k}\Delta t_k.
-}
-\]
-
-\subsection{单步速度与位置误差}
-
-含噪声的旋转后比力满足
-\[
-\begin{aligned}
-    &\widetilde{\Delta R}_{i,k}
-      \Exp(\delta\theta_{i,k}^\wedge)
-      (\widehat a_k-n_{a,k})\\
-    &\quad\simeq
-    \widetilde{\Delta R}_{i,k}\widehat a_k
-    -\widetilde{\Delta R}_{i,k}\widehat a_k^\wedge
-     \delta\theta_{i,k}
-    -\widetilde{\Delta R}_{i,k}n_{a,k}.
-\end{aligned}
-\]
-于是
-\[
-\boxed{
-\begin{aligned}
-    \delta v_{i,k+1}
-    \simeq{}&\delta v_{i,k}
-    -\widetilde{\Delta R}_{i,k}\widehat a_k^\wedge
-     \delta\theta_{i,k}\Delta t_k\\
-    &-\widetilde{\Delta R}_{i,k}n_{a,k}\Delta t_k,
-\end{aligned}
-}
-\]
-以及
-\[
-\boxed{
-\begin{aligned}
-    \delta p_{i,k+1}
-    \simeq{}&\delta p_{i,k}
-    +\delta v_{i,k}\Delta t_k\\
-    &-\frac12\widetilde{\Delta R}_{i,k}\widehat a_k^\wedge
-     \delta\theta_{i,k}\Delta t_k^2\\
-    &-\frac12\widetilde{\Delta R}_{i,k}n_{a,k}\Delta t_k^2.
-\end{aligned}
-}
-\]
-
-\subsection{一步误差映射及其Jacobian}
-
-定义离散噪声向量
-\[
-    \eta_k
-    :=
-    \begin{bmatrix}
-        n_{g,k}\\
-        n_{a,k}
-    \end{bmatrix}
-    \in\R^6.
-\]
-上面三式可统一写成
-\[
-    e_{i,k+1}
-    \simeq
-    F_ke_{i,k}+G_k\eta_k,
-\]
-其中
-\[
-\boxed{
-F_k=
-\begin{bmatrix}
-    A_k^\top & 0 & 0\\
-    -\widetilde{\Delta R}_{i,k}\widehat a_k^\wedge\Delta t_k
-        & I & 0\\
-    -\frac12\widetilde{\Delta R}_{i,k}\widehat a_k^\wedge\Delta t_k^2
-        & I\Delta t_k & I
-\end{bmatrix}
-}
-\]
-和
-\[
-\boxed{
-G_k=
-\begin{bmatrix}
-    -J_r(\phi_k)\Delta t_k & 0\\
-    0 & -\widetilde{\Delta R}_{i,k}\Delta t_k\\
-    0 & -\frac12\widetilde{\Delta R}_{i,k}\Delta t_k^2
-\end{bmatrix}.
-}
-\]
-这里$F_k$是离散一步传播对旧局部误差的微分之矩阵表示，$G_k$是同一步传播对噪声输入的微分之矩阵表示。它们不是另外假设出来的系统矩阵。
-
-例如$F_k$的第三行依次收集姿态误差对位置的影响、旧速度误差积累的$h$倍、以及旧位置误差本身。$G_k$第二列同时进入速度行和位置行，说明同一次加速度噪声会共同改变这两个量，不能把它们当成两份独立的噪声。
-
-
-\subsection{协方差递推}
-
-设$\eta_k$零均值、不同采样区间相互独立，并具有离散协方差
-\[
-    Q_k=\operatorname{Cov}(\eta_k).
-\]
-以
-\[
-    \Sigma_{i,i}=0
-\]
-初始化预积分协方差，则一阶传播为
-\[
-\boxed{
-    \Sigma_{i,k+1}
-    =F_k\Sigma_{i,k}F_k^\top+G_kQ_kG_k^\top.
-}
-\]
-递推到$t_j$得到$\Sigma_{ij}\in\R^{9\times9}$。它包含旋转、速度、位置误差之间的交叉协方差；不能只保存三个互不相关的$3\times3$方差块。
-
-
-\begin{bookexample}{一个噪声样本怎样产生非零交叉协方差}
-只看无转动的一维情形，旧误差为零，单步加速度噪声为$n_a$、方差为$\sigma_a^2$。按本章离散模型，
-\[
- \delta v=-hn_a,\qquad\delta p=-\tfrac12h^2n_a.
-\]
-于是
-\[
- \operatorname{Cov}\begin{pmatrix}\delta v\\\delta p\end{pmatrix}
- =\sigma_a^2\begin{bmatrix}h^2&h^3/2\\h^3/2&h^4/4\end{bmatrix}.
-\]
-同一个$n_a$同时出现在两式里，交叉项自然非零。这个单步例子甚至只有一个随机来源，协方差是秩一矩阵；经过多个时间步和不同噪声方向后，再形成整段的联合不确定性。
-\end{bookexample}
-
-\subsection{离散协方差与连续噪声密度不能混用}
-
-上式中的$Q_k$被定义为区间内离散噪声样本$\eta_k$的协方差，因此$G_k$中显式包含$\Delta t_k$。若数据手册给出的是连续白噪声谱密度$Q_c$，就需要先按所采用的采样模型离散化。
-
-例如把连续白噪声在区间上的平均值作为$n_k$时，常见关系是
-\[
-    \operatorname{Cov}(n_k)=\frac{Q_c}{\Delta t_k}.
-\]
-代入带$\Delta t_k$的$G_k$后，单步积分噪声方差呈正确的$Q_c\Delta t_k$量级。另一种实现也可以把积分后的噪声增量直接定义为随机变量，此时$G_k$和$Q_k$中的时间因子分配会不同。只要随机变量定义一致，两种写法可以等价；若把连续密度直接当离散样本方差代入，则协方差会多出或缺少$\Delta t_k$因子。
-
-\subsection{与ESKF相同的形式，不同的初值含义}
-
-预积分固定起点相对量，因此从$\Sigma_{i,i}=0$开始，只累积本区间新噪声。它是条件于起点及偏置线性化点的测量不确定性，不应把ESKF起点的状态协方差$P_i$直接作为它的初值。起点状态的未知性会由后端中的状态变量与先验共同表达。
-
-虽然递推形式都是$F\Sigma F^\top+GQG^\top$，这里传播的是相对测量误差；ESKF传播的是当前导航状态误差。两者中旋转误差都会影响比力投影，进而产生旋转、速度、位置间的交叉协方差。
-
-第\ref{sec:eskf-discretization-detail}节已经区分连续白噪声与区间平均噪声。本节的$G_k$来自区间起点积分器，配合$Q_c/\Delta t_k$得到该离散模型的协方差近似；它并不等于连续随机系统全部时间相关项的精确积分。
-
-\subsection{偏置随机游走与十五维联合协方差}
-
-前面把区间偏置当作固定值。若偏置在区间内也随机变化，那么早期产生的偏置误差会影响后续每一步旋转与比力。因此除了九维运动误差，还应保存六维偏置误差及其交叉项。下面用$\Sigma^{(15)}$明确表示扩展后的协方差，区别于九维$\Sigma$。
-
-
-若考虑区间内偏置变化，令
-\[
- e^{(15)}_{i,k}=(\delta\theta_{i,k}^\top,
- \delta v_{i,k}^\top,\delta p_{i,k}^\top,
- \delta b_{g,k}^\top,\delta b_{a,k}^\top)^\top.
-\]
-这里按$(\theta,v,p,b_g,b_a)$排列，与后面的IMU残差行顺序一致。令$D_k=\widetilde{\Delta R}_{i,k}$、$h=\Delta t_k$，对区间起点积分器，偏置耦合块为
-\[
- C_k=\begin{bmatrix}
- -J_r(\phi_k)h&0\\
- 0&-D_kh\\
- 0&-\tfrac12D_kh^2
- \end{bmatrix},\qquad
- \mathcal F_k=\begin{bmatrix}F_k&C_k\\0&I_6\end{bmatrix}.
-\]
-采用步末加入偏置增量的离散模型，噪声矩阵与协方差为
-\[
- \mathcal G_k=\begin{bmatrix}G_k&0\\0&I_6\end{bmatrix},
- \qquad
- \mathcal Q_k=\operatorname{diag}
-       (Q_g/h,Q_a/h,Q_{wg}h,Q_{wa}h).
-\]
-四类连续噪声在此假设相互独立。联合递推为
-\[
- \Sigma^{(15)}_{i,k+1}=\mathcal F_k\Sigma^{(15)}_{i,k}\mathcal F_k^\top
-              +\mathcal G_k\mathcal Q_k\mathcal G_k^\top,
- \qquad\Sigma^{(15)}_{i,i}=0.
-\]
-尽管起点误差为零，较早的偏置随机游走会通过后续传播影响运动量，故终点运动残差与偏置残差一般相关。将九维运动协方差和六维偏置协方差简单拼成块对角阵，相当于忽略区间内偏置变化对运动的影响及相应相关性；它是一种近似，不能与完整联合传播无条件等同。
-
-本章后面的十五维因子使用这份联合协方差。若选择九维运动因子加单独偏置因子，应同时注明上述近似并避免重复计算同一噪声贡献。
-
-这样得到的$\Sigma^{(15)}_{ij}$对应第七章完整IMU残差的行顺序。它衡量的是本区间测量误差；稍后求端点Jacobian时，再让端点状态的变化进入这个残差空间。
-
-\section{预积分：五个偏置Jacobian怎样随积分累积}
-\label{sec:preint-bias-derivation}
-
-这一节为式\eqref{eq:intuition-bias-correction}计算五个敏感度矩阵。第七章已经解释了为什么当前偏置变化后可以先作一阶修正；现在固定同一批IMU数据，对每一步采用的偏置求导。这里的扰动表示重新解释同一批读数时采用的偏置变化，不是新采样的随机噪声。
-
-到这里，名义预积分量已经由$\mathcal I_{ij}$和线性化偏置$\bar b=(\bar b_g,\bar b_a)$算出。下一步不重新扫描$\mathcal I_{ij}$，而是近似回答：如果当前优化得到的偏置是$b=\bar b+\delta b$，预积分量应该怎样变化？因此本节的$J_{R g},J_{v g},J_{v a},J_{p g},J_{p a}$都表示同一件事的不同分块：预积分量对偏置增量$\delta b_g,\delta b_a$的一阶导数。
-
-\subsection{为什么需要偏置线性化}
-
-“线性化点”就是第一次扫描IMU时采用的偏置值。我们同时保存两类结果：这次积分算出了多少，以及偏置稍微改变时结果会怎样变。后一类信息就是Jacobian。它的每一列表示沿一个偏置分量变化时，终点结果的一阶变化方向。
-
-
-固定区间内的IMU样本序列，记$\widetilde\Delta_{ij}(b)$为按偏置$b$重新积分得到的三个数值结果的合称。$b=\bar b$时，它就是已保存的$\widetilde\Delta_{ij}$。改变偏置改变的是我们如何解释同一批读数，真实运动并没有因此改变。
-
-陀螺偏置直接影响每一步旋转，因此还会通过旋转后的比力间接影响速度和位置。加速度计偏置不影响本章模型中的旋转，但直接影响速度和位置。
-
-若优化过程中偏置从线性化点
-\[
-    \bar b=(\bar b_g,\bar b_a)
-\]
-变为
-\[
-    b=\bar b+\delta b,
-    \qquad
-    \delta b=(\delta b_g,\delta b_a),
-\]
-完全精确的处理需要在新偏置处重新积分。为了避免小幅偏置更新就重复扫描全部IMU，先保存预积分结果对偏置变化的局部敏感程度，再作一阶修正；这些敏感程度由下面的Jacobian矩阵记录。
-
-\subsection{旋转不能用普通加法修正}
-
-速度和位置落在欧氏空间，可以用一阶加法：
-\[
-\begin{aligned}
-    \widetilde{\Delta v}_{ij}(\bar b+\delta b)
-    &\simeq
-    \widetilde{\Delta v}_{ij}
-    +J_{v g,ij}\delta b_g
-    +J_{v a,ij}\delta b_a,\\
-    \widetilde{\Delta p}_{ij}(\bar b+\delta b)
-    &\simeq
-    \widetilde{\Delta p}_{ij}
-    +J_{p g,ij}\delta b_g
-    +J_{p a,ij}\delta b_a.
-\end{aligned}
-\]
-旋转则必须先选择局部参数化。本章采用右侧局部坐标：
-\[
-\boxed{
-    \widetilde{\Delta R}_{ij}(\bar b_g+\delta b_g)
-    \simeq
-    \widetilde{\Delta R}_{ij}
-    \Exp\bigl((J_{R g,ij}\delta b_g)^\wedge\bigr).
-}
-\]
-其中$J_{R g,ij}\in\R^{3\times3}$不是把旋转矩阵对偏置逐元素求导得到的任意矩阵，而是把三维陀螺偏置变化转换为终点三维右侧小旋转的矩阵。其与第五章微分概念的对应放在章末。
-
-\subsection{单步指数微分与整段偏置微分}
-
-沿用第\ref{sec:eskf-discretization-detail}节定义的$J_r(\phi)$：
-\[
- \Exp((\phi+\delta\phi)^\wedge)
- \simeq\Exp(\phi^\wedge)\Exp((J_r(\phi)\delta\phi)^\wedge).
-\]
-它把单步旋转向量的变化转换成右侧小旋转；$J_{R g,ij}$则把整段积分的陀螺偏置变化转换成终点右侧小旋转。输入变量不同，所以不能把这两个Jacobian混为一谈。下面使用同节给出的闭式与小角度展开。
-
-\subsection{陀螺偏置Jacobian递推}
-
-为了给整段积分求导，可以对每一步递推求导并随时间累积。新一步的偏置影响有两部分：过去已经积累的旋转变化，和本步去偏置角速度的直接变化。下面分别把它们换到新的右侧误差坐标，再相加。
-
-
-假设在第$k$步已有
-\[
-    \widetilde{\Delta R}_{i,k}(\bar b_g+\delta b_g)
-    \simeq
-    \widetilde{\Delta R}_{i,k}
-    \Exp\bigl((J_{R g,i,k}\delta b_g)^\wedge\bigr).
-\]
-新偏置下的单步旋转向量是
-\[
-    \phi_k-\delta b_g\Delta t_k.
-\]
-利用指数映射右Jacobian，
-\[
-\begin{aligned}
-    &\Exp\bigl((\phi_k-\delta b_g\Delta t_k)^\wedge\bigr)\\
-    &\qquad\simeq
-    A_k
-    \Exp\bigl((-J_r(\phi_k)\delta b_g\Delta t_k)^\wedge\bigr).
-\end{aligned}
-\]
-再使用旋转恒等式
-\[
-    \Exp(\eta^\wedge)A_k
-    =A_k\Exp\bigl((A_k^\top\eta)^\wedge\bigr),
-\]
-把旧误差搬到新名义旋转右侧，可得
-\[
-\begin{aligned}
-    \widetilde{\Delta R}_{i,k+1}(\bar b_g+\delta b_g)
-    \simeq{}&
-    \widetilde{\Delta R}_{i,k}A_k\\
-    &\cdot\Exp\left(
-      \left(
-        \bigl[A_k^\top J_{R g,i,k}
-        -J_r(\phi_k)\Delta t_k\bigr]\delta b_g
-      \right)^\wedge
-    \right),
-\end{aligned}
-\]
-其中忽略了偏置扰动的二阶乘积。因此
-\[
-\boxed{
-    J_{R g,i,k+1}
-    =A_k^\top J_{R g,i,k}
-    -J_r(\phi_k)\Delta t_k,
-    \qquad
-    J_{R g,i,i}=0.
-}
-\]
-
-\subsection{速度偏置Jacobian递推}
-
-陀螺偏置通过改变姿态间接影响速度，加速度计偏置直接改变比力。这两条路径在展开式中应当能分别找到。旧速度本身对偏置的依赖也必须保留，因为它已经包含此前全部采样的影响。
-
-
-在小扰动下
-\[
-\begin{aligned}
-    &\widetilde{\Delta R}_{i,k}(\bar b_g+\delta b_g)
-      \bigl(\widehat a_k-\delta b_a\bigr)\\
-    &\quad\simeq
-    \widetilde{\Delta R}_{i,k}
-    \Exp\bigl((J_{R g,i,k}\delta b_g)^\wedge\bigr)
-    \bigl(\widehat a_k-\delta b_a\bigr)\\
-    &\quad\simeq
-    \widetilde{\Delta R}_{i,k}\widehat a_k
-    -\widetilde{\Delta R}_{i,k}\widehat a_k^\wedge
-     J_{R g,i,k}\delta b_g
-    -\widetilde{\Delta R}_{i,k}\delta b_a.
-\end{aligned}
-\]
-与速度名义递推比较，得到
-\[
-\boxed{
-\begin{aligned}
-    J_{v g,i,k+1}
-    &=J_{v g,i,k}
-      -\widetilde{\Delta R}_{i,k}\widehat a_k^\wedge
-       J_{R g,i,k}\Delta t_k,\\
-    J_{v a,i,k+1}
-    &=J_{v a,i,k}
-      -\widetilde{\Delta R}_{i,k}\Delta t_k,
-\end{aligned}
-}
-\]
-初值均为零。
-
-\subsection{位置偏置Jacobian递推}
-
-位置多出一条路径：以前累积的速度变化，还会在本步继续产生位移。因此位置Jacobian不仅有本步加速度项，还含旧速度Jacobian乘$\Delta t_k$。这一项与第七章两个时间步手算例子中的“旧速度继续前进”完全对应。
-
-
-同理，对位置一步映射求微分：
-\[
-\boxed{
-\begin{aligned}
-    J_{p g,i,k+1}
-    ={}&J_{p g,i,k}
-      +J_{v g,i,k}\Delta t_k\\
-      &-\frac12\widetilde{\Delta R}_{i,k}\widehat a_k^\wedge
-       J_{R g,i,k}\Delta t_k^2,\\
-    J_{p a,i,k+1}
-    ={}&J_{p a,i,k}
-      +J_{v a,i,k}\Delta t_k
-      -\frac12\widetilde{\Delta R}_{i,k}\Delta t_k^2.
-\end{aligned}
-}
-\]
-初值同样为
-\[
-    J_{p g,i,i}=0,
-    \qquad
-    J_{p a,i,i}=0.
-\]
-
-\subsection{区间终点的一阶偏置修正}
-
-沿用第七章的记号，上标$c$表示用当前偏置修正后的预积分测量。没有波浪线的$\Delta R,\Delta v,\Delta p$仍表示理想相对量；波浪线表示原偏置处算出的测量。三层对象分别是“真实运动应满足什么”“已算好什么”“按当前偏置修正成什么”。
-
-
-递推到$t_j$后，保存
-\[
-    J_{R g,ij},J_{v g,ij},J_{v a,ij},J_{p g,ij},J_{p a,ij}.
-\]
-优化器当前偏置与预积分线性化点之差为
-\[
-    \delta b_g=b_{g,i}-\bar b_g,
-    \qquad
-    \delta b_a=b_{a,i}-\bar b_a.
-\]
-于是修正后的预积分测量为
-\[
-\boxed{
-\begin{aligned}
-    \Delta R_{ij}^{c}
-    &=\widetilde{\Delta R}_{ij}
-      \Exp\bigl((J_{R g,ij}\delta b_g)^\wedge\bigr),\\
-    \Delta v_{ij}^{c}
-    &=\widetilde{\Delta v}_{ij}
-      +J_{v g,ij}\delta b_g
-      +J_{v a,ij}\delta b_a,\\
-    \Delta p_{ij}^{c}
-    &=\widetilde{\Delta p}_{ij}
-      +J_{p g,ij}\delta b_g
-      +J_{p a,ij}\delta b_a.
-\end{aligned}
-}
-\]
-这些只是围绕$(\bar b_g,\bar b_a)$的一阶近似。实现中通常设置偏置重积分阈值；当$\|\delta b_g\|$或$\|\delta b_a\|$超过阈值时，在新的线性化点重新预积分，以免高阶误差持续累积。
-
-\begin{bookexample}{偏置符号的快速检查}
-本章定义$\widehat\omega=\omega_m-\bar b_g$和$\widehat a=a_m-\bar b_a$。因此偏置增大时，去偏置后的输入减小，$J_{R g}$和$J_{v a}$的单步直接项都带负号。若采用相反的偏置误差定义，例如$\delta b=\bar b-b$，所有相关Jacobian的符号也会随之改变。
-\end{bookexample}
-
-%——————————————————————————————————%
-\begin{remark}[偏置修正与协方差的线性化点]
-小偏置修正时通常固定已保存的协方差，这是在原线性化点附近的近似。若修正明显改变名义轨迹，相关Jacobian和协方差也需要重新计算。若单纯改变旋转误差的表达坐标，则应对协方差及交叉块同步作坐标变换，不能只改旋转均值。
-\end{remark}
-
-\section{预积分：端点残差及其完整Jacobian}
-\label{sec:preint-endpoint-jacobians}
-
-这一节计算第七章优化步骤中的$J$。残差已由式\eqref{eq:intuition-imu-residual}定义，采用“端点预测减修正后测量”的方向；偏置演化残差为$b_{g,j}-b_{g,i}$与$b_{a,j}-b_{a,i}$。把它们按$(R,v,p,b_g,b_a)$排列为$r_{ij}^{\mathrm{IMU}}$，然后对两个端点的局部增量求导。
-
-这里不更换运动模型，也不重新扫描IMU。当前保存的预积分量、五个偏置Jacobian和线性化偏置固定；当前端点状态及由其偏置产生的一阶修正可以变化。
-
-\subsection{固定优化扰动约定}
-
-对姿态采用右侧扰动，对欧氏状态采用加法：
-\[
-\begin{aligned}
-    R_i'&=R_i\Exp(\delta\theta_i^\wedge),
-    &R_j'&=R_j\Exp(\delta\theta_j^\wedge),\\
-    v_i'&=v_i+\delta v_i,
-    &v_j'&=v_j+\delta v_j,\\
-    p_i'&=p_i+\delta p_i,
-    &p_j'&=p_j+\delta p_j,\\
-    b_{g,i}'&=b_{g,i}+\delta b_{g,i},
-    &b_{g,j}'&=b_{g,j}+\delta b_{g,j},\\
-    b_{a,i}'&=b_{a,i}+\delta b_{a,i},
-    &b_{a,j}'&=b_{a,j}+\delta b_{a,j}.
-\end{aligned}
-\]
-记$x\oplus\delta x$表示本节给出的局部更新，即姿态使用右侧指数映射、速度位置和偏置使用加法。优化Jacobian就是
-\[
-    J_{ij}
-    :=\left.
-    \frac{\partial\,r_{ij}^{\mathrm{IMU}}(x_i\oplus\delta x_i,
-                                           x_j\oplus\delta x_j)}
-         {\partial(\delta x_i,\delta x_j)}
-    \right|_{\delta x_i=\delta x_j=0}.
-\]
-若改用左侧姿态扰动，局部参数化和Jacobian都必须随之改变，而不是只替换更新式。
-
-\subsection{速度与位置残差的主要Jacobian块}
-
-为缩短记号，令
-\[
-    q_v:=R_i^\top(v_j-v_i-g_WT_{ij}),
-\]
-\[
-    q_p:=R_i^\top
-      \left(
-        p_j-p_i-v_iT_{ij}
-        -\frac12g_WT_{ij}^2
-      \right).
-\]
-因为
-\[
-    \Exp(-\delta\theta_i^\wedge)q
-    \simeq q+q^\wedge\delta\theta_i,
-\]
-速度残差的一阶变化为
-\[
-\begin{aligned}
-    \delta r_v
-    ={}&q_v^\wedge\delta\theta_i
-      -R_i^\top\delta v_i
-      +R_i^\top\delta v_j\\
-      &-J_{v g,ij}\delta b_{g,i}
-      -J_{v a,ij}\delta b_{a,i}.
-\end{aligned}
-\]
-位置残差的一阶变化为
-\[
-\begin{aligned}
-    \delta r_p
-    ={}&q_p^\wedge\delta\theta_i
-      -R_i^\top\delta p_i
-      +R_i^\top\delta p_j\\
-      &-R_i^\top\delta v_iT_{ij}
-      -J_{p g,ij}\delta b_{g,i}
-      -J_{p a,ij}\delta b_{a,i}.
-\end{aligned}
-\]
-这些式子直接显示了坐标约定的作用：由于相对向量在$B_i$中表达，只有$R_i$的扰动直接改变它们的表达坐标；$R_j$不出现在当前定义的$r_v,r_p$中。
-
-\subsection{旋转残差的局部微分}
-
-令
-\[
-    E_R=(\Delta R_{ij}^{c})^\top R_i^\top R_j,
-    \qquad
-    r_R=\Log(E_R)^\vee.
-\]
-先暂时固定偏置。右扰动后，误差群元素满足
-\[
-\begin{aligned}
-    E_R'
-    &=(\Delta R_{ij}^{c})^\top
-      \Exp(-\delta\theta_i^\wedge)
-      R_i^\top R_j
-      \Exp(\delta\theta_j^\wedge)\\
-    &=\Exp\left(
-        -\bigl((\Delta R_{ij}^{c})^\top
-          \delta\theta_i\bigr)^\wedge
-      \right)
-      E_R
-      \Exp(\delta\theta_j^\wedge).
-\end{aligned}
-\]
-记$J_l(r_R),J_r(r_R)$为$\SO(3)$指数映射的左、右Jacobian。对数映射的一阶变化给出
-\[
-\boxed{
-\begin{aligned}
-    \delta r_R
-    ={}&-J_l(r_R)^{-1}
-       (\Delta R_{ij}^{c})^\top
-       \delta\theta_i\\
-      &+J_r(r_R)^{-1}\delta\theta_j
-      -J_l(r_R)^{-1}J_r(\beta)J_{R g,ij}\delta b_{g,i},
-\end{aligned}
-}
-\]
-其中$\beta=J_{R g,ij}(b_{g,i}-\bar b_g)$，$J_l(\phi)=J_r(-\phi)$。当前偏置增量引起$\beta$增加$J_{R g,ij}\delta b_{g,i}$，对应修正旋转右侧的增量$J_r(\beta)J_{R g,ij}\delta b_{g,i}$；取逆后它出现在$E_R$左侧，因而得到上式最后一项。在线性化点$\beta=0$，该项退化为$-J_l(r_R)^{-1}J_{R g,ij}\delta b_{g,i}$。这给出了所采用一阶偏置修正映射在任意当前修正量处的Jacobian，不表示原始预积分关于偏置的高阶变化已经被精确恢复。
-
-当旋转残差已经很小时，
-\[
-    J_l(r_R)^{-1}\simeq I,
-    \qquad
-    J_r(r_R)^{-1}\simeq I,
-\]
-上式退化为常见的近零残差一阶形式。但在较大残差处直接把两个逆Jacobian都替换为$I$，会额外引入线性化近似。
-
-\subsection{偏置残差Jacobian}
-
-偏置随机游走残差是欧氏差，因此
-\[
-    \delta r_{b_g}=\delta b_{g,j}-\delta b_{g,i},
-    \qquad
-    \delta r_{b_a}=\delta b_{a,j}-\delta b_{a,i}.
-\]
-其Jacobian块分别是$(-I,I)$。至此，IMU因子的所有Jacobian都来自同一个复合过程：
-\[
-\boxed{
-\text{选择状态局部扰动}
-\longrightarrow
-\text{代入几何残差}
-\longrightarrow
-\text{在零扰动处求微分}
-\longrightarrow
-\text{写成矩阵块}.
-}
-\]
-
-\begin{bookexample}{数值差分应差分哪一个函数}
-检查解析Jacobian时，不应对旋转矩阵元素直接加减。应对已经固定的局部参数化做中心差分，例如
-\[
-    \frac{
-      r(R_i\Exp(\epsilon e_s^\wedge))-r(R_i\Exp(-\epsilon e_s^\wedge))
-    }{2\epsilon}.
-\]
-只有数值差分与解析推导采用同一左、右扰动约定、同一$\Log$分支和同一偏置误差定义，比较才有意义。
-\end{bookexample}
-
-%——————————————————————————————————%
-\subsection{按行列顺序组装两个端点矩阵}
-
-为看清完整排列，令$D=R_i^\top$，并把上面旋转行的三个系数简记为
-\[
-\begin{aligned}
- U_i&=-J_l(r_R)^{-1}(\Delta R_{ij}^{c})^\top,\\
- U_j&=J_r(r_R)^{-1},\\
- U_b&=-J_l(r_R)^{-1}J_r(\beta)J_{R g,ij}.
-\end{aligned}
-\]
-这些只是已推得各块的简写，没有引入新近似。省略偏置Jacobian的区间下标$ij$后，按残差行$(R,v,p,b_g,b_a)$、状态列$(\theta,p,v,b_g,b_a)$，得到
-\[
- J_i=\begin{bmatrix}
- U_i&0&0&U_b&0\\
- q_v^\wedge&0&-D&-J_{v g}&-J_{v a}\\
- q_p^\wedge&-D&-DT_{ij}&-J_{p g}&-J_{p a}\\
- 0&0&0&-I&0\\
- 0&0&0&0&-I
- \end{bmatrix},
-\]
-\[
- J_j=\begin{bmatrix}
- U_j&0&0&0&0\\
- 0&0&D&0&0\\
- 0&D&0&0&0\\
- 0&0&0&I&0\\
- 0&0&0&0&I
- \end{bmatrix},\qquad J_{ij}=[\,J_i\ \ J_j\,].
-\]
-$J_i,J_j$均为$15\times15$，$J_{ij}$为$15\times30$。例如位置残差行中的$-DT_{ij}$正是初速改变后，区间参考位移改变的影响；终点姿态没有出现在速度、位置残差定义中，相应列为零。这样每个块都能回到前面的分量变化式检查。
-
-矩阵$J_{ij}$把两端状态增量送到同一个十五维残差空间。下一节用已保存的联合协方差对这个空间加权，便得到优化器实际求解的局部问题。
-
-\section{预积分：概率加权、白化与局部优化方程}
-
-第七章已经用式\eqref{eq:intuition-factor-cost}说明协方差怎样决定残差权重。本节补齐该概率模型的条件、白化计算以及从端点Jacobian形成优化方程的步骤。
-
-\label{sec:probability-to-least-squares}
-
-\subsection{同样大小的差，为什么惩罚不同}
-
-假设两个方向的残差都为$0.1\,\mathrm m$，但对应标准差分别为$0.01\,\mathrm m$和$0.2\,\mathrm m$。前者相当于$10$个标准差，后者只有$0.5$个标准差；平方后分别是$100$和$0.25$。同样的米数，在不同噪声水平下代表不同程度的不相容。
-
-对标量高斯残差，密度含有$\exp[-r^2/(2\sigma^2)]$。取负对数就得到$\tfrac12r^2/\sigma^2$加常数。这说明按方差加权来自所选概率模型。多维情形还要考虑不同分量的相关性，便得到Mahalanobis二次型。
-
-
-\subsection{从局部高斯残差到因子权重}
-
-假设十五维残差在正确状态附近近似零均值高斯，且$\Sigma^{(15)}_{ij}$正定。固定IMU数据后，定义关于端点状态的局部因子
-\[
- \psi_{ij}(x_i,x_j;\mathcal I_{ij})
- \propto |\Sigma^{(15)}_{ij}|^{-1/2}
- \exp\left[-\tfrac12r_{ij}^\top(\Sigma^{(15)}_{ij})^{-1}r_{ij}\right].
-\]
-这是所采用的预积分残差模型给出的概率权重：残差在协方差允许的范围内越小，端点越能解释这段IMU测量。
-
-当当前优化中协方差固定时，负对数因子中与状态有关的项为
-\[
- E_{ij}=\tfrac12r_{ij}^\top(\Sigma^{(15)}_{ij})^{-1}r_{ij}.
-\]
-若协方差依赖待优化状态，$\frac12\log|\Sigma^{(15)}_{ij}|$及其变化一般不能丢弃。若追求关于流形参考体积的精确密度，也需要考虑局部映射的体积修正；这里采用小误差区域中的残差高斯模型。
-
-\begin{remark}[局部因子的概率范围]
-上述因子使用局部残差高斯模型。不能把十五维残差高斯的归一化常数直接宣称为整段原始IMU数据在其高维观测空间上的精确归一化常数；也不能把$p(x_j\mid x_i,\mathcal I_{ij})$与$p(\mathcal I_{ij}\mid x_i,x_j)$无条件视为同一个密度。二者条件方向不同。实际优化在明确近似模型后使用上述端点因子。
-
-\end{remark}
-
-\subsection{白化与信息矩阵}
-
-标量中“除以标准差”把误差变成无量纲的相对大小；有相关性的向量需要先考虑相关方向，再按各方向的不确定性缩放。Cholesky分解提供一种直接的计算方式。
-
-
-令$\Lambda_{ij}=(\Sigma^{(15)}_{ij})^{-1}$。它衡量各误差方向的置信程度。方差较大的方向获得较小惩罚，交叉协方差则使不同分量的组合方向一起参与加权。
-
-若$\Sigma^{(15)}_{ij}=LL^\top$是Cholesky分解，定义白化残差
-\[
- \widetilde r_{ij}=L^{-1}r_{ij},\qquad
- E_{ij}=\tfrac12\|\widetilde r_{ij}\|^2.
-\]
-实现中通过三角方程求解，不显式形成$L^{-1}$。对白化Jacobian同样求解$L\widetilde J=J$。
-
-此处暂将十五维因子协方差简记为$\Sigma$。若改用可逆线性残差坐标$r'=Cr$，必须同时使用$\Sigma'=C\Sigma C^\top$，才有
-\[
- (r')^\top(\Sigma')^{-1}r'=r^\top\Sigma^{-1}r.
-\]
-这说明白化与单位变换都是坐标操作，不能在变换残差后继续使用未变换的权重。若协方差奇异，应先确认独立噪声方向和模型约束，再在有效子空间内构造因子，不能直接求逆。
-
-\subsection{从端点因子到联合后验}
-
-窗口状态记为$X=(x_0,\ldots,x_N)$，必要时还包括地图与标定变量，观测记为$Z$。在给定全部相关状态后，各因子的噪声相互独立这一建模假设下，
-\[
- p(X\mid Z)\propto\psi_{\mathrm{prior}}(X)
-    \prod_{(i,j)}\psi_{ij}^{\mathrm{IMU}}(x_i,x_j)
-    \prod_a\psi_a^{\mathrm{other}}(X_a).
-\]
-乘积空间中的每个节点仍是一个合法状态。对固定协方差的局部高斯模型取负对数，最大后验估计变成
-\[
- X^*=\arg\min_X\left(E_{\mathrm{prior}}(X)
-      +\sum_{(i,j)}E_{ij}^{\mathrm{IMU}}(x_i,x_j)
-      +\sum_aE_a^{\mathrm{other}}(X_a)\right).
-\]
-如果观测共享噪声、使用重叠的IMU区间，或共享未纳入状态的标定误差，简单独立乘积一般不再适用。预积分构造并不会自动保证因子独立。
-
-\subsection{信息通过残差微分回到状态空间}
-
-已经知道某个残差应该被惩罚多少，下一步还要知道改变哪个状态能减小它。Jacobian提供状态变化到残差变化的关系。先把一小段状态增量$\delta X$送到残差空间，再在残差空间中计算带权平方误差，就能得到关于$\delta X$的局部二次函数。
-
-\label{sec:probability-push-pull}
-
-固定观测后，残差是从状态乘积流形到欧氏误差空间的映射。给状态选择局部参数化，在当前估计附近写成
-\[
- r(X\oplus\delta X)\simeq r(X)+J\delta X.
-\]
-于是$E=\frac12r^\top\Lambda r$的一阶变化为
-\[
- dE[\delta X]=r^\top\Lambda J\delta X,
-\]
-局部二次模型的Gauss--Newton矩阵为
-\[
- H_{\mathrm{GN}}=J^\top\Lambda J.
-\]
-几何上，$dr$把状态切向量送到残差空间，残差信息双线性型
-$W(u,v)=u^\top\Lambda v$沿$dr$拉回为状态空间中的约束。若$J\delta X=0$，这个因子就无法在一阶上区分该状态变化。
-
-将各因子累加后求解
-\[
- \left(\sum_aJ_a^\top\Lambda_aJ_a\right)\delta X
-       =-\sum_aJ_a^\top\Lambda_ar_a,
-\]
-再通过$\oplus$更新状态。需要先验或适当的规范固定来处理不可观方向，也可加入阻尼。这里的$J^\top\Lambda J$是信息的拉回；之前的$F\Sigma F^\top$是协方差的向前传播，两者作用对象与方向不同。
-
-
-第\ref{sec:preint-endpoint-jacobians}节得到的$J_{ij}$现在进入$J^\top\Lambda J$与$J^\top\Lambda r$。它只告诉优化器端点变化如何影响本段残差；窗口中其他因子也贡献各自的项，合在一起才决定本轮状态增量。
-
-\section{把推导落实为同一套计算流程}
-
-第\ref{sec:intuition-workflows}节已经给出两种方法各自的输入、保存量和用途。现在所有Jacobian都有了计算式，可以把预积分扫描的更新顺序写得更具体，并检查名义计算和求导是否一致。
-
-\subsection{一次扫描中保存什么}
-
-给定区间IMU、时间戳、偏置线性化点和噪声模型，一次预积分可按以下顺序完成：
-\begin{enumerate}
-\item 初始化相对量$(I,0,0)$、全部偏置Jacobian为零、区间协方差为零，记录$\bar b_g,\bar b_a$。
-\item 对第$k$个时间步，计算$\widehat\omega_k,\widehat a_k,\phi_k,A_k$及$J_r(\phi_k)$。
-\item 使用同一组旧名义值与旧Jacobian，计算下一步的相对量、偏置Jacobian以及误差传播矩阵。位置递推使用旧速度，位置偏置Jacobian使用旧速度偏置Jacobian。
-\item 按选定的九维或十五维噪声模型传播协方差，再一起提交本步的新值。
-\item 到$t_j$保存时间长度、三个名义相对量、五个偏置Jacobian块、协方差和偏置线性化点。
-\end{enumerate}
-这些保存量维数固定，原始IMU仍可保留以便需要时重新积分。
-
-优化每次评价因子时，先根据当前起点偏置修正预积分量，再从端点状态计算三个预测相对量，构造运动与偏置残差，使用对应协方差白化，并计算关于端点局部增量的Jacobian。端点姿态、位置和速度改变通常只影响这一步；偏置变化超出线性化有效范围时，才重新扫描区间IMU并刷新名义量、Jacobian与协方差。
-
-\subsection{用简单运动检查整条推导}
-
-\begin{enumerate}
-\item \textbf{静止与匀速：}固定姿态且世界加速度为零时，比力为$-R_i^\top g_W$；代回重建式应保持速度不变，位置只增加$v_iT_{ij}$。
-\item \textbf{零时间：}当$T_{ij}=0$，相对量为$(I,0,0)$，偏置Jacobian与区间噪声协方差都为零。此时是确定性约束的极限，不能对零协方差直接求逆。
-\item \textbf{常角速度：}旋转相对量应为$\Exp((\omega T_{ij})^\wedge)$；变换旋转轴的样本序列则应保持正确的时间乘法顺序。
-\item \textbf{偏置微分：}轻微改变$\bar b_g,\bar b_a$后重新积分，与保存的Jacobian一阶预测比较，误差应随扰动幅度缩小。
-\item \textbf{残差微分：}用同样的右侧扰动对端点状态作中心差分，核对解析Jacobian；旋转误差要处于一致的局部对数分支。
-\item \textbf{概率与坐标：}协方差应对称半正定，旋转与速度、位置的交叉项应保留；更换世界参考系并同步变换重力后，相对量应不变。
-\end{enumerate}
-
-从第五章到这里，群乘法保证姿态与旋转增量合法，测度论说明随机量和区域概率怎样沿映射联系，局部微分则把ESKF和预积分的不确定性传播落成可计算的矩阵。滤波与优化分别使用这些对象，区别在于要维护当前状态，还是要比较一组可以反复调整的关键帧状态。
-
-\section{补充：ESKF的区域概率与贝叶斯解释}
-
-第七章已经解释预测改变可能状态的分布、观测改变各候选状态的权重。本节把这一认识写回第六章的区域概率语言，并给出创新门限的条件。
+第八章已经解释预测改变可能状态的分布、观测改变各候选状态的权重。本节把这一认识写回第\ref{chap:md-07}章的区域概率语言，并给出创新门限的条件。
 
 \subsection{从高斯创新到卡方变量}
 
 在观测与预测匹配、局部模型有效、$S$正定的条件下，$r\approx\mathcal N(0,S)$。令$S=LL^\top$，白化创新$y=L^{-1}r$近似服从$\mathcal N(0,I_m)$，所以
-\[
- d_M^2=r^\top S^{-1}r=y^\top y\approx\chi_m^2.
-\]
+
+\begin{equation*}
+d_M^2=r^\top S^{-1}r=y^\top y\approx\chi_m^2.
+\end{equation*}
+
 给定期望接收概率$\alpha$，取$\gamma=F_{\chi_m^2}^{-1}(\alpha)$，则接受区域
-\[
- A_\gamma=\{r:r^\top S^{-1}r<\gamma\}
-\]
+
+\begin{equation*}
+A_\gamma=\{r:r^\top S^{-1}r<\gamma\}
+\end{equation*}
+
 在上述模型下具有约为$\alpha$的概率。这里使用的是创新协方差$S=HP^-H^\top+V$，不能只拿传感器噪声$V$代替，因为预测状态本身也有误差。
 
-\subsection{接回第六章的原像语言}
+\subsection{接回第\ref{chap:md-07}章的原像语言}
 
 把$r$到$d_M^2$的映射记为$q$，接收区域就是$q^{-1}([0,\gamma))$；再沿残差产生映射取原像，就得到底层样本空间中的接收事件。测度论保证这些事件与概率运算有一致定义，高斯近似则给出具体的卡方阈值。
 
@@ -1788,239 +728,44 @@ $W(u,v)=u^\top\Lambda v$沿$dr$拉回为状态空间中的约束。若$J\delta X
 
 \subsection{观测为什么会改变各个状态的权重}
 
-第六章将分布理解为给区域分配概率。预测用运动模型把原来的可能状态向前推进，过程噪声使推进结果继续分散；观测更新则检查每个候选状态能否解释新数据。
+第\ref{chap:md-07}章将分布理解为给区域分配概率。预测用运动模型把原来的可能状态向前推进，过程噪声使推进结果继续分散；观测更新则检查每个候选状态能否解释新数据。
 
 先用有限个候选状态说明。若先验权重为$w_i$，观测在该候选状态下的似然为$\ell_i$，则更新后的权重为
-\[
- w_i^+=\frac{\ell_iw_i}{\sum_j\ell_jw_j}.
-\]
+
+\begin{equation*}
+w_i^+=\frac{\ell_iw_i}{\sum_j\ell_jw_j}.
+\end{equation*}
+
 例如两个候选位置先验各占$1/2$，新观测的似然分别为$0.8$与$0.2$，归一化后权重变为$0.8$与$0.2$。观测没有移动真实机器人，而是改变了我们对候选状态的相对相信程度。
 
 对一般状态分布$\mathsf P^-$，同一规则写成
-\[
- \mathsf P^+(A)
+
+\begin{equation*}
+\mathsf P^+(A)
  =\frac{\int_A\ell(x)\,\mathsf P^-(dx)}
         {\int\ell(x)\,\mathsf P^-(dx)},
-\]
+\end{equation*}
+
 其中分母假设有限且为正。ESKF把名义状态附近的先验与观测作局部高斯、线性近似，才得到前面的卡尔曼公式。
 
 \subsection{从确定性预测到带噪声的预测}
 
-没有过程噪声时，若下一状态为$f_k(x)$，则预测区域$A$的概率为$\mathsf P_{k-1}^+(f_k^{-1}(A))$。这就是第六章的分布推前。
+没有过程噪声时，若下一状态为$f_k(x)$，则预测区域$A$的概率为$\mathsf P_{k-1}^+(f_k^{-1}(A))$。这就是第\ref{chap:md-07}章的分布推前。
 
 有噪声时，从同一个$x$出发也可能到达多个区域。记$\mathcal K_k(x,A;u_k)$为给定$x$和输入$u_k$后下一状态落入$A$的条件概率，便有
-\[
- \mathsf P_k^-(A)=\int\mathcal K_k(x,A;u_k)\,\mathsf P_{k-1}^+(dx).
-\]
+
+\begin{equation*}
+\mathsf P_k^-(A)=\int\mathcal K_k(x,A;u_k)\,\mathsf P_{k-1}^+(dx).
+\end{equation*}
+
 它对所有可能起点的贡献加权求和。转移核是这个条件概率的统一名称；前面已经推导的名义状态与协方差传播，是对这项分布计算的局部近似。
 
-\begin{remark}[参考状态与均值]
-在欧氏高斯模型中，参考点可以直接取均值；流形上则先选择局部误差，令其均值在一阶模型下为零。它不自动等于按某种全局距离定义的均值。若选定距离$d$，可另研究最小化$\mathbb E[d(q,X)^2]$的Fr\'echet均值，但其存在性与唯一性需要额外条件，ESKF的计算不依赖于求出这个全局对象。
-\end{remark}
+\begin{quote}\textbf{说明 · 参考状态与均值}\par
 
-\section{补充：用前几章的映射语言回看预积分}
+在欧氏高斯模型中，参考点可以直接取均值；流形上则先选择局部误差，令其均值在一阶模型下为零。它不自动等于按某种全局距离定义的均值。若选定距离$d$，可另研究最小化$\mathbb E[d(q,X)^2]$的Fréchet均值，但其存在性与唯一性需要额外条件，ESKF的计算不依赖于求出这个全局对象。
 
-前面已经完成了“定义相对量、积分、传播误差、修正偏置、比较端点”的过程。本节把这些具体操作重新组织成映射。读到这里时，每个抽象符号都已有对应的计算式，可以用来检查对象与求导方向，而不必靠它们第一次理解预积分。
+\end{quote}
 
-\subsection{把三个定义看成一张相对化映射}
+\section{把推导重新接回一次计算}
 
-为了突出先旋转、再积分比力的计算链，本章把相对量按$(\Delta R,\Delta v,\Delta p)$排列，记其空间为$\mathcal N=\SO(3)\times\mathbb R^3\times\mathbb R^3$。它的九维误差顺序是$(\theta,v,p)$，与完整状态的$(\theta,p,v,b_g,b_a)$顺序不同，矩阵拼接时必须按所标记的行列对应。
-
-对按$(R,v,p)$读取的导航分量，定义
-\[
- \Psi_{x_i,\tau}(R,v,p)=
- \left(R_i^\top R,\ R_i^\top(v-v_i-g_W\tau),\
- R_i^\top(p-p_i-v_i\tau-\tfrac12g_W\tau^2)\right).
-\]
-它先减去从起点出发的自由落体参考轨迹，再用起点姿态改变向量坐标。对固定$x_i,\tau$，这是一张微分同胚，其逆映射$\mathcal A_{x_i,\tau}$正是重建公式。
-
-这里的“移动标架”包含随时间变化的平移参考轨迹；用于表达向量的坐标轴仍然是固定的$B_i$。三个相对量都由同一张映射产生，而不是三个彼此独立的代数技巧。
-
-若整体更换世界坐标$R'=QR$、$v'=Qv$、$p'=Qp+c$，并同时令$g_W'=Qg_W$，直接代入可知三个相对量不变。若保持重力数值不变，则只有保持重力方向的世界旋转具有这项不变性。
-
-\subsection{逐项求导对应时间依赖换元}
-
-先看旋转分量。第五章用左平移的微分把单位元处的角速度搬到当前相对姿态处，在矩阵表示下正好给出主线中的方程：
-\[
-    \dot{\Delta R}_i(t)
-    =(dL_{\Delta R_i(t)})_I\bigl(\omega(t)^\wedge\bigr)
-    =\Delta R_i(t)\omega(t)^\wedge
-    \in T_{\Delta R_i(t)}\SO(3).
-\]
-
-记导航分量为$y(t)=(R(t),v(t),p(t))$，相对量为$\Delta y_i(t)=(\Delta R_i(t),\Delta v_i(t),\Delta p_i(t))$。这三次逐项求导整体上就是时间依赖坐标变换的链式法则：
-\[
-\boxed{
-    \dot{\Delta y}_i(t)
-    =d_y\Psi_{x_i,\tau}\big|_{y(t)}[\dot y(t)]
-      +\partial_\tau\Psi_{x_i,\tau}\big|_{y(t)}.
-}
-\]
-第一项把绝对向量场推到移动标架，第二项补偿标架本身随$\tau$变化的速度。$v_i$、$g_W\tau$和$\tfrac12g_W\tau^2$之所以出现在$\Psi$中，正是为了让这两项中的初值与重力参考运动相互抵消。相对动力学不是另一套人为规定的ODE，而是绝对动力学经过$\Psi_{x_i,\tau}$推前后的表达。
-
-\subsection{相对运动怎样与绝对运动组合}
-
-将绝对导航流记为$\Phi^u_{t,t_i}$，相对流记为$\widetilde\Phi^u_{t,t_i}$。相对流从固定初值$e_{\mathcal N}=(I,0,0)$出发，绝对流则满足
-\[
- \Phi^u_{t,t_i}(R_i,v_i,p_i)
- =\mathcal A_{x_i,\tau}\bigl(\widetilde\Phi^u_{t,t_i}(e_{\mathcal N})\bigr).
-\]
-初值只进入重建映射，区间输入决定相对流终点，这就是预积分可复用的原因。实际测量有噪声且只在离散时刻给出，所以主线中的离散递推同时近似了相对运动和它的不确定性。
-
-\subsection{几何上：离散积分器是流形到自身的映射}
-
-固定第$k$个IMU区间后，上述递推定义了一个相对状态的一步映射
-\[
-    \widehat\Phi_k^{\mathrm{rel}}:
-    \mathcal N\to\mathcal N.
-\]
-它把
-\[
-    z_k=(\widetilde{\Delta R}_{i,k},
-         \widetilde{\Delta v}_{i,k},
-         \widetilde{\Delta p}_{i,k})
-\]
-送到$z_{k+1}$。旋转分量通过
-\[
-    \widetilde{\Delta R}_{i,k+1}
-    =\widetilde{\Delta R}_{i,k}\Exp(\phi_k^\wedge)
-\]
-更新，所以输出仍属于$\SO(3)$；速度和位置分量位于欧氏空间，才使用向量加法。若直接写
-\[
-    \Delta R_{k+1}
-    =\Delta R_k+\Delta R_k\widehat\omega_k^\wedge\Delta t_k,
-\]
-右侧一般不再是正交矩阵，这说明环境矩阵空间中的Euler加法没有保持状态流形。
-
-因此“选积分器”并不只是选一个数值公式，而是在选择一个近似精确相对流的映射
-\[
-    \widehat\Phi_k^{\mathrm{rel}}
-    \approx
-    \widetilde\Phi^u_{t_{k+1},t_k}.
-\]
-主线中的偏置Jacobian、误差传播矩阵$F_k$和噪声注入矩阵$G_k$，都必须是同一个$\widehat\Phi_k^{\mathrm{rel}}$对不同输入变量的微分。名义量使用一种积分器、Jacobian却来自另一种积分器，在几何上等于对两张不同映射求值和求导。
-
-\subsection{协方差是局部切空间上的二阶对象}
-
-在一阶模型中，预积分误差可以对应到名义终点处的随机切向量
-\[
-    \delta Z_{ij}\in T_{\widetilde\Delta_{ij}}\mathcal N.
-\]
-选定右侧旋转误差和欧氏分量后，$\delta Z_{ij}$才由列向量$e_{ij}\in\R^9$表示，并得到协方差矩阵
-\[
-    \Sigma_{ij}=\mathbb E[e_{ij}e_{ij}^\top].
-\]
-若改用另一套局部坐标$e'=Se$，其中$S$可逆，则同一个不确定性必须同步变换。下面的信息矩阵公式还假设$\Sigma$可逆：
-\[
-    \Sigma'=S\Sigma S^\top,
-    \qquad
-    \Lambda'=S^{-\top}\Lambda S^{-1},
-    \quad \Lambda=\Sigma^{-1}.
-\]
-因此$\Sigma$不是附着在旋转矩阵九个元素上的固定数组，$\Lambda$也不是脱离残差定义的固定权重。二者分别是局部协方差和信息二次型在所选切空间坐标中的矩阵表示，并保持
-\[
-    (e')^\top\Lambda'e'
-    =e^\top\Lambda e.
-\]
-
-从映射微分看，一步误差传播中的$F_k$正是$\widehat\Phi_k^{\mathrm{rel}}$对旧状态误差的切映射坐标，$G_k$则是它对本步噪声方向的微分坐标。协方差递推
-\[
-    \Sigma_{k+1}=F_k\Sigma_kF_k^\top+G_kQ_kG_k^\top
-\]
-就是随机切向量经过线性化推前后的二阶矩传播。
-
-\subsection{内蕴微分如何成为偏置Jacobian矩阵}
-
-将主线中“固定数据后按偏置重新积分”的计算记为映射
-\[
-    \mathcal P_{ij}:\mathcal B\to\mathcal N,\qquad\mathcal B:=\mathbb R^6,
-    \qquad
-    b\longmapsto\widetilde\Delta_{ij}(b),
-\]
-其在$\bar b$处的微分是
-\[
-\boxed{
-    d\mathcal P_{ij}\big|_{\bar b}:
-    T_{\bar b}\mathcal B
-    \longrightarrow
-    T_{\widetilde\Delta_{ij}}\mathcal N.
-}
-\]
-由于$\mathcal B=\R^6$，定义域切空间可自然写成$\R^6$；但值域包含
-\[
-    T_{\widetilde{\Delta R}_{ij}}\SO(3),
-\]
-不能直接把旋转分量当作三个数。为得到工程中的矩阵，选择与右侧指数修正相容的局部识别
-\[
-\begin{aligned}
-    \tau_{\widetilde\Delta}:T_{\widetilde\Delta}\mathcal N
-    &\to\R^9,\\
-    (\dot R,\dot v,\dot p)
-    &\mapsto
-    \begin{bmatrix}
-      (\widetilde{\Delta R}^{\top}\dot R)^\vee\\
-      \dot v\\
-      \dot p
-    \end{bmatrix}.
-\end{aligned}
-\]
-于是保存的偏置Jacobian整体上是
-\[
-\boxed{
-    J_{ij}^{b}
-    =\left[
-      \tau_{\widetilde\Delta_{ij}}
-      \circ d\mathcal P_{ij}\big|_{\bar b}
-    \right]
-    \in\R^{9\times6},
-}
-\]
-而$J_{R g},J_{v g},J_{v a},J_{p g},J_{p a}$只是它按输出和偏置类型拆开的矩阵块。换用左侧旋转局部坐标时，$d\mathcal P_{ij}$这个抽象微分不变，但$\tau_{\widetilde\Delta}$改变，所有旋转相关矩阵块也随之换坐标。
-
-\subsection{残差来自流形上的比较映射}
-
-预积分因子残差采用“预测减测量”的方向；ESKF滤波创新使用“观测减预测”，两者服务于不同的更新公式，不能直接混用其Jacobian。定义相对导航状态之间的局部比较映射
-\[
-    \epsilon_{\mathrm{imu}}:
-    U\subseteq\mathcal N\times\mathcal N\to\R^9
-\]
-其中$U$限制相对旋转处于选定的局部对数分支；在该区域内定义
-\[
-\boxed{
-    \epsilon_{\mathrm{imu}}\bigl(
-      (R_s,v_s,p_s),(R_m,v_m,p_m)
-    \bigr)
-    :=
-    \begin{bmatrix}
-      \Log(R_m^{-1}R_s)^\vee\\
-      v_s-v_m\\
-      p_s-p_m
-    \end{bmatrix}.
-}
-\]
-下标$s$表示由当前状态给出的相对预测，$m$表示预积分测量。两者一致时，比较映射落在零向量：
-\[
-    \epsilon_{\mathrm{imu}}(z,z)=0.
-\]
-
-再定义端点状态的相对化映射
-\[
-    \Pi_{ij}:\mathcal X\times\mathcal X\to\mathcal N,
-\]
-它把$(x_i,x_j)$送到由两端状态计算出的相对旋转、速度和位置。于是几何残差可统一写成
-\[
-\boxed{
-    r_{Rvp}
-    =\epsilon_{\mathrm{imu}}\left(
-      \Pi_{ij}(x_i,x_j),
-      \Delta_{ij}^{c}
-    \right).
-}
-\]
-前面给出的三条残差公式，正是把$\Pi_{ij}$和$\epsilon_{\mathrm{imu}}$展开后的坐标表达。若把旋转误差取逆或换成左侧误差，零误差集合不变，但局部残差和Jacobian会相应变换；与其他残差的交叉协方差也要使用同一变换，不能只替换$\Log$内部的乘法顺序。
-
-\subsection{预积分映射把输入不确定性送到相对运动}
-
-固定时间戳、偏置与标定参数后，离散积分是从IMU序列到$\mathcal N$的映射。它由加法、矩阵乘法和指数映射组成，因而在相应Borel结构下可测。若输入是随机的，输出分布就是这个映射的测度推前。
-
-非线性推前一般不保持高斯性。本章保存的名义相对量与协方差，是对选定误差坐标作局部线性化后的高斯摘要；它没有保存整段输入的全部概率信息。第六章的精确测度推前与本章的局部高斯递推，应当在这个层次上区分。
+一次滤波循环可按五步检查：用IMU传播名义状态；从同一运动模型传播$P$；观测到来后计算创新及其Jacobian；求出误差修正并注入；把后验协方差变换到新参考点。每一步都要核对量的坐标系、单位和局部误差顺序。具体实现若换用另一种积分器或旋转扰动约定，矩阵数值会变化，而“先构造合法状态附近的局部映射，再传播或比较误差”的方法不变。

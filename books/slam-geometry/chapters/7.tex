@@ -1,85 +1,81 @@
-\chapter{从局部误差到状态估计：ESKF与IMU预积分}
-\label{chap:estimation-intuition}
-\label{chap:eskf}
+\chapter{从局部误差到当前状态：ESKF直观}
 
-前面几章逐步回答了状态估计需要的数学问题：集合给出状态的容器，流形说明状态附近可以选择局部坐标，切空间与微分描述小变化，李群让小旋转能够回到合法姿态，测度与概率则描述我们对未知状态的相信程度。现在把这些对象放进同一台运动的机器人中，看看它们怎样一起工作。
+\label{chap:md-08}
 
-设机器人从一个关键帧出发，途中IMU不断采样，相机间歇地看到路标。我们既可以随时间维护“机器人现在在哪里”的估计，也可以保存“两帧之间发生了怎样的运动”，以后交给优化器反复比较。这分别引出误差状态卡尔曼滤波（ESKF）和IMU预积分。
+前面几章分别建立了状态空间、局部坐标、李群扰动和概率的语言。现在把它们放到一台带IMU的机器人身上：IMU不断给出读数，机器人先据此预测自己走到了哪里；外部传感器随后提供新观测，估计再向能够解释观测的状态移动。这一过程持续回答两个问题：当前先按哪个状态计算？这个状态附近还允许怎样的偏离？
 
-本章沿着笔记中的对象关系连续展开：
-\[
-\begin{aligned}
- &\text{状态与局部概率}\longrightarrow\text{IMU推动状态与误差}\\
- &\longrightarrow\text{观测修正、注入与重置}
- \longrightarrow\text{保存区间相对运动}\\
- &\longrightarrow\text{偏置修正与端点比较}
- \longrightarrow\text{概率加权的优化约束}.
-\end{aligned}
-\]
-这里保留三维姿态、速度、位置和偏置，但先把传播矩阵与Jacobian作为有明确输入、输出的映射来理解。读完本章，应当能说清两套方法各自接收什么、保存什么、怎样更新；第八章再逐项计算这些映射的矩阵。
+本章只追踪当前状态的估计。先给出三维姿态、位置、速度和偏置，再沿“名义状态预测—误差与协方差传播—观测修正—注入与重置”走完一次ESKF循环。矩阵暂时被看作有明确输入、输出的局部映射；下一章再从真实与名义运动出发逐项推导。区间IMU的预积分从第\ref{chap:md-10}章开始讨论。
 
 \section{前面的数学怎样成为一个状态估计}
-\label{sec:intuition-state}
 
 \subsection{状态是一个点，不确定性分配给区域}
 
-沿用前几章的观点，真实状态是状态空间$M$中的一个点$x$。我们不知道这个点在哪里，所以还需要在$M$的可测区域上给出概率。比如“位置在这一小片区域内，同时姿态在某个范围内”是一个事件；它的概率表达当前信息对这一片可能状态的支持程度。
+沿用前几章的观点，真实状态是状态空间$M$中的一个点$x$。我们不知道这个点在哪里，所以还需要在$M$的可测区域上给出概率。比如"位置在这一小片区域内，同时姿态在某个范围内"是一个事件；它的概率表达当前信息对这一片可能状态的支持程度。
 
-一个估计值不能独自表达这件事。两次估计都报出同一个位置，其中一次可能很有把握，另一次可能允许很大的偏离。因此我们同时保存一个参考状态$\hat x$和它附近的不确定性。参考状态称为\textbf{名义状态}，可以理解为“当前先按它来计算的那个合法状态”。
+一个估计值不能独自表达这件事。两次估计都报出同一个位置，其中一次可能很有把握，另一次可能允许很大的偏离。因此我们同时保存一个参考状态$\hat x$和它附近的不确定性。参考状态称为\textbf{名义状态}，可以理解为"当前先按它来计算的那个合法状态"。
 
 本章使用的惯性导航状态为
-\[
- x=(R,p,v,b_g,b_a)\in M=\mathcal X:=\SO(3)\times\mathbb R^{12}.
-\]
+
+\begin{equation*}
+x=(R,p,v,b_g,b_a)\in M=\mathcal X:=\mathop{\mathrm{SO}}(3)\times\mathbb R^{12}.
+\end{equation*}
+
 $R$是姿态，$p$是位置，$v$是速度，$b_g,b_a$分别是陀螺仪和加速度计偏置。每个向量有三个分量；姿态也有三个局部自由度，所以状态共有十五个局部自由度。地图暂时不放进这个状态，看到的路标先当作已知。
 
 \subsection{用局部误差描述参考点附近的可能状态}
 
-我们需要一种方式，从$\hat x$出发描述附近的$x$。位置、速度、偏置可以相加，姿态使用第五章的小旋转：
-\begin{equation}
-\label{eq:intuition-oplus}
+我们需要一种方式，从$\hat x$出发描述附近的$x$。位置、速度、偏置可以相加，姿态使用第\ref{chap:md-06}章的小旋转：
+
+\begin{equation}\label{eq-intuition-oplus}
 \begin{aligned}
- R&=\hat R\Exp(\delta\theta^\wedge),&p&=\hat p+\delta p,\\
+ R&=\hat R\mathop{\mathrm{Exp}}(\delta\theta^\wedge),&p&=\hat p+\delta p,\\
  v&=\hat v+\delta v,&b_g&=\hat b_g+\delta b_g,\\
  &&b_a&=\hat b_a+\delta b_a.
 \end{aligned}
 \end{equation}
-把这五种局部偏离依次排成列向量，记为
-\[
- \delta x=(\delta\theta^\top,\delta p^\top,\delta v^\top,
-                \delta b_g^\top,\delta b_a^\top)^\top\in\mathbb R^{15}.
-\]
-上式整体简记为$x=\hat x\oplus\delta x$。$\oplus$不是把所有状态都当作普通向量相加，而是约定使用式\eqref{eq:intuition-oplus}的局部更新规则。
 
-这里$\delta\theta$是三维小旋转坐标，$\delta\theta^\wedge$是对应的叉积矩阵，满足$\delta\theta^\wedge u=\delta\theta\times u$；$\hat R\delta\theta^\wedge$才是$T_{\hat R}\SO(3)$中的切向量。$\Exp$将小旋转变成群元素，右乘后仍是合法旋转。这就把“切空间里算增量、流形上更新状态”的数学语言落实为一次实际操作。
+把这五种局部偏离依次排成列向量，记为
+
+\begin{equation*}
+\delta x=(\delta\theta^\top,\delta p^\top,\delta v^\top,
+                \delta b_g^\top,\delta b_a^\top)^\top\in\mathbb R^{15}.
+\end{equation*}
+
+上式整体简记为$x=\hat x\oplus\delta x$。$\oplus$不是把所有状态都当作普通向量相加，而是约定使用式\eqref{eq-intuition-oplus}的局部更新规则。
+
+这里$\delta\theta$是三维小旋转坐标，$\delta\theta^\wedge$是对应的叉积矩阵，满足$\delta\theta^\wedge u=\delta\theta\times u$；$\hat R\delta\theta^\wedge$才是$T_{\hat R}\mathop{\mathrm{SO}}(3)$中的切向量。$\mathop{\mathrm{Exp}}$将小旋转变成群元素，右乘后仍是合法旋转。这就把"切空间里算增量、流形上更新状态"的数学语言落实为一次实际操作。
 
 帽号$\hat R$表示估计，右上角$\wedge$表示把向量变成叉积矩阵。若反过来比较真实姿态和名义姿态，在局部有
-\[
- \delta\theta=\Log(\hat R^\top R)^\vee.
-\]
+
+\begin{equation*}
+\delta\theta=\mathop{\mathrm{Log}}(\hat R^\top R)^\vee.
+\end{equation*}
+
 先求相对旋转，再取对数与$\vee$得到向量；这里固定使用右侧误差，后面不再更换约定。
 
 \subsection{把概率模型放在这组误差坐标上}
 
 采用局部高斯近似：
-\begin{equation}
-\label{eq:intuition-local-gaussian}
- \boxed{x=\hat x\oplus\delta x,\qquad\delta x\sim\mathcal N(0,P).}
+
+\begin{equation}\label{eq-intuition-local-gaussian}
+\boxed{x=\hat x\oplus\delta x,\qquad\delta x\sim\mathcal N(0,P).}
 \end{equation}
+
 $P$是十五维误差的协方差。它既记录每一种偏离有多大，也记录哪些偏离倾向于一起出现。例如姿态方向略有偏差，会影响速度和位置的预测，这种联系也要保存在$P$中。
 
-按第六章的语言，局部误差的概率分布通过$\delta x\mapsto\hat x\oplus\delta x$送到状态空间。想知道状态落在某区域$A$的概率，就看哪些误差向量会被送进$A$。因此高斯写在局部向量上，概率最终描述的仍是可能状态的区域。
+按第\ref{chap:md-07}章的语言，局部误差的概率分布通过$\delta x\mapsto\hat x\oplus\delta x$送到状态空间。想知道状态落在某区域$A$的概率，就看哪些误差向量会被送进$A$。因此高斯写在局部向量上，概率最终描述的仍是可能状态的区域。
 
 误差均值为零，表示当前用$\hat x$作为分布中心；某一次真实误差$\delta x$通常仍未知，也不一定为零。后面由观测算出的$\widehat{\delta x}$只是对误差的估计，不能与真实误差混为一谈。这个近似适用于不确定性集中在参考状态附近的情形。
 
 还要记住：协方差依赖误差坐标。若同一偏离改写为$e'=Ce$，则
-\[
- \operatorname{Cov}(e')=C\operatorname{Cov}(e)C^\top.
-\]
-这是第六章的二阶矩经过线性映射后的结果。稍后的预测和重置都会使用它：前者让偏离随运动向前变化，后者改变描述偏离的参考点。
+
+\begin{equation*}
+\operatorname{Cov}(e')=C\operatorname{Cov}(e)C^\top.
+\end{equation*}
+
+这是第\ref{chap:md-07}章的二阶矩经过线性映射后的结果。稍后的预测和重置都会使用它：前者让偏离随运动向前变化，后者改变描述偏离的参考点。
 
 \section{IMU怎样推动名义状态}
-\label{sec:eskf-imu-model}
 
 \subsection{先固定向量在哪个坐标系中}
 
@@ -90,29 +86,35 @@ $R=R_{WB}$把机体系$B$中的向量送到世界系$W$，例如$a_W=Ra_B$；$R^
 \subsection{读数、偏置与真实输入}
 
 记陀螺读数为$\omega_m$，加速度计读数为$a_m$，测量模型为
-\[
- \omega_m=\omega+b_g+n_g,\qquad a_m=a+b_a+n_a.
-\]
+
+\begin{equation*}
+\omega_m=\omega+b_g+n_g,\qquad a_m=a+b_a+n_a.
+\end{equation*}
+
 $\omega$是机体系角速度，$a$是机体系比力，$n_g,n_a$是零均值测量噪声。偏置是缓慢变化的系统偏移，需要作为状态估计；噪声则表示每次读数中未知的随机部分。
 
 加速度计的比力满足$a=R^\top(\dot v-g_W)$。因此真实运动遵循
-\[
- \dot R=R\omega^\wedge,\qquad\dot p=v,\qquad\dot v=g_W+Ra.
-\]
+
+\begin{equation*}
+\dot R=R\omega^\wedge,\qquad\dot p=v,\qquad\dot v=g_W+Ra.
+\end{equation*}
+
 速度方程可以逐步读成：去掉读数中的偏置与噪声，得到比力；用姿态转到世界系；加上重力，得到速度变化率。静止时$\dot v=0$，所以理想读数$a=-R^\top g_W$，通常不为零。
 
 \subsection{当前先按名义状态往前算}
 
 真实偏置和噪声未知。实际计算先扣除当前偏置估计，记
-\[
- \hat\omega_k=\omega_{m,k}-\hat b_{g,k},\qquad
+
+\begin{equation*}
+\hat\omega_k=\omega_{m,k}-\hat b_{g,k},\qquad
  \hat a_k=a_{m,k}-\hat b_{a,k}.
-\]
+\end{equation*}
+
 帽号表示这一步采用的输入。对于很短的一步$h=\Delta t_k=t_{k+1}-t_k$，用起点姿态近似步内比力的世界方向，得到
-\begin{equation}
-\label{eq:eskf-nominal-step}
+
+\begin{equation}\label{eq-eskf-nominal-step}
 \begin{aligned}
- \hat R_{k+1}^-&=\hat R_k^+\Exp((\hat\omega_kh)^\wedge),\\
+ \hat R_{k+1}^-&=\hat R_k^+\mathop{\mathrm{Exp}}((\hat\omega_kh)^\wedge),\\
  \hat p_{k+1}^-&=\hat p_k^++\hat v_k^+h
                  +\tfrac12(g_W+\hat R_k^+\hat a_k)h^2,\\
  \hat v_{k+1}^-&=\hat v_k^++(g_W+\hat R_k^+\hat a_k)h,\\
@@ -120,515 +122,182 @@ $\omega$是机体系角速度，$a$是机体系比力，$n_g,n_a$是零均值测
  \qquad\hat b_{a,k+1}^-=\hat b_{a,k}^+.
 \end{aligned}
 \end{equation}
+
 上标$-$表示外部观测到来前的预测，$+$表示完成观测修正后的估计，不是数值的正负号。没有外部观测时，就直接把预测接到下一步。
 
 旋转由角速度乘时间得到小旋转，再通过群乘法复合。位置和速度则沿熟悉的运动学关系前进，位置式使用旧速度，因为本步加速度的贡献已经由$\tfrac12h^2$项另行计算。偏置名义值暂时不变，表示没有新信息表明它会向某个方向漂移；偏置的不确定性仍会增长。
 
 \begin{bookexample}{用静止状态检查这一步}
+
 世界系$z$轴向上，取$\hat R=I$、$g_W=(0,0,-g)^\top$。去偏置的静止读数为$\hat a=(0,0,g)^\top$，于是$g_W+\hat R\hat a=0$。若初速为零，位置和速度保持不变。这个检查同时说明了比力、坐标变换和重力加回各自的作用。
+
 \end{bookexample}
 
-这组递推是选定的数值近似：步内转动明显时，旋转后的比力会变化。第八章以同一组递推推导对应的误差和噪声矩阵，使名义传播与协方差传播相互匹配。
+这组递推是选定的数值近似：步内转动明显时，旋转后的比力会变化。下一章以同一组递推推导对应的误差和噪声矩阵，使名义传播与协方差传播相互匹配。
 
 \section{预测时，误差和不确定性怎样一起向前走}
-\label{sec:intuition-prediction}
 
 \subsection{想象两条彼此接近的轨迹}
 
 一条轨迹从名义状态出发，使用当前采用的输入；另一条是真实轨迹，起点有小偏离，输入还受到偏置误差与噪声影响。下一时刻的误差，就是这两条轨迹走完同一小段时间后，在新参考点附近的差。
 
 先不拆开所有分量，只保留一阶关系：
-\begin{equation}
-\label{eq:intuition-error-step}
- \boxed{\delta x_{k+1}\simeq\Phi_k\delta x_k+w_k.}
-\end{equation}
-$\Phi_k$是十五维旧误差到新误差的线性映射：它回答“起点稍微偏一点，终点会怎样偏”。这是第四章的微分在局部坐标中的矩阵表示。$w_k$收集这一时间段新进入的随机扰动，记其协方差为$Q_{d,k}$；下标$d$提醒我们它已经是\textbf{整步噪声增量}的协方差。
 
-例如，旧速度稍大，下一步位置也会偏大；姿态略微倾斜，本来接近竖直的比力会出现水平投影，之后影响速度与位置。这些关系由$\Phi_k$一起记录。现在只需理解它传递了哪些影响，第八章再从两条轨迹的方程中逐项算出它。
+\begin{equation}\label{eq-intuition-error-step}
+\boxed{\delta x_{k+1}\simeq\Phi_k\delta x_k+w_k.}
+\end{equation}
+
+$\Phi_k$是十五维旧误差到新误差的线性映射：它回答"起点稍微偏一点，终点会怎样偏"。这是第\ref{chap:md-05}章的微分在局部坐标中的矩阵表示。$w_k$收集这一时间段新进入的随机扰动，记其协方差为$Q_{d,k}$；下标$d$提醒我们它已经是\textbf{整步噪声增量}的协方差。
+
+例如，旧速度稍大，下一步位置也会偏大；姿态略微倾斜，本来接近竖直的比力会出现水平投影，之后影响速度与位置。这些关系由$\Phi_k$一起记录。现在只需理解它传递了哪些影响，下一章再从两条轨迹的方程中逐项算出它。
 
 \subsection{旧的不确定性被传播，新的噪声被加入}
 
-当旧误差和本步噪声独立、零均值时，把式\eqref{eq:intuition-error-step}代入协方差定义即可得到
-\begin{equation}
-\label{eq:intuition-P-predict}
- \boxed{P_{k+1}^-=\Phi_kP_k^+\Phi_k^\top+Q_{d,k}.}
+当旧误差和本步噪声独立、零均值时，把式\eqref{eq-intuition-error-step}代入协方差定义即可得到
+
+\begin{equation}\label{eq-intuition-p-predict}
+\boxed{P_{k+1}^-=\Phi_kP_k^+\Phi_k^\top+Q_{d,k}.}
 \end{equation}
-第一项让已有误差分布随运动改变，第二项加入本时间段的新不确定性。前者接上微分的局部传播，二者相加则来自第六章关于独立随机量二阶矩的计算。
+
+第一项让已有误差分布随运动改变，第二项加入本时间段的新不确定性。前者接上微分的局部传播，二者相加则来自第\ref{chap:md-07}章关于独立随机量二阶矩的计算。
 
 因此一次IMU预测有两份输出：名义状态$\hat x_{k+1}^-$告诉我们先按哪里来计算，$P_{k+1}^-$告诉我们附近还允许怎样的偏离。只有前一份，相当于保存一条没有置信程度的轨迹；两份一起，才构成下一次观测修正所需的先验。
 
 \section{观测怎样完成修正、注入与重置}
-\label{sec:intuition-update}
 
 \subsection{把实际看到的与本来应该看到的放在一起}
 
 观测到来后，先固定预测状态$\hat x^-$。设观测模型为
-\[
- z=h(x)+v_z,\qquad v_z\sim\mathcal N(0,V).
-\]
+
+\begin{equation*}
+z=h(x)+v_z,\qquad v_z\sim\mathcal N(0,V).
+\end{equation*}
+
 $h$把状态变成传感器应看到的量，$z$是实际观测，$v_z$是观测噪声，$V$是其协方差。这里用$V$避免与姿态$R$混淆，并假设这份新噪声与预测误差独立。
 
 例如已知世界系路标$\ell$，传感器测到它在机体系中的三维相对位置，则$h(x)=R^\top(\ell-p)$：先求世界系中的相对向量，再转回机器人自身的轴。预测观测与创新分别为
-\[
- \hat z=h(\hat x^-),\qquad r=z-\hat z.
-\]
-$r$回答的是“这次数据与预测差了多少”，其坐标和单位属于观测空间，还不是机器人状态的修正量。
+
+\begin{equation*}
+\hat z=h(\hat x^-),\qquad r=z-\hat z.
+\end{equation*}
+
+$r$回答的是"这次数据与预测差了多少"，其坐标和单位属于观测空间，还不是机器人状态的修正量。
 
 为了找出什么状态偏离能解释它，在$\hat x^-$附近写
-\begin{equation}
-\label{eq:intuition-observation}
- \boxed{r\simeq H\delta x+v_z,\qquad
+
+\begin{equation}\label{eq-intuition-observation}
+\boxed{r\simeq H\delta x+v_z,\qquad
  H=\left.\frac{\partial h(\hat x^-\oplus\delta x)}{\partial\delta x}
  \right|_{\delta x=0}.}
 \end{equation}
-$H$把状态的局部偏离送到观测变化。先用$\oplus$产生合法状态，再经过$h$，最后求微分，这正是第四、五章复合映射的计算顺序。若观测有$m$个分量，$H$便是$m\times15$矩阵；本章暂时保留这个整体含义。
+
+$H$把状态的局部偏离送到观测变化。先用$\oplus$产生合法状态，再经过$h$，最后求微分，这正是前面的微分几何与李群章节复合映射的计算顺序。若观测有$m$个分量，$H$便是$m\times15$矩阵；本章暂时保留这个整体含义。
 
 \subsection{把观测空间中的差换成状态修正}
 
 创新既包含状态预测误差，也包含观测噪声，所以其协方差为
-\[
- S=HP^-H^\top+V.
-\]
+
+\begin{equation*}
+S=HP^-H^\top+V.
+\end{equation*}
+
 $S$表达这次创新本来允许有多大的变化。卡尔曼增益与误差估计写成
-\begin{equation}
-\label{eq:intuition-gain}
- \boxed{K=P^-H^\top S^{-1},\qquad
+
+\begin{equation}\label{eq-intuition-gain}
+\boxed{K=P^-H^\top S^{-1},\qquad
  d:=\widehat{\delta x}=Kr.}
 \end{equation}
+
 $K$是从观测创新到状态修正的映射。$H$说明哪些状态变化能解释观测，$P^-$说明先验允许它们偏多少，$V$说明观测本身有多可靠。三者一起决定这次修正由哪些状态分担。实际计算中求解关于$S$的线性方程，不必显式求逆。
 
 这里$d$只是$\widehat{\delta x}$的简写。更新后的误差分布还围绕旧参考$\hat x^-$，但其中心由零移到了$d$。围绕这个新中心的后验协方差记为$P_u$，Joseph形式为
-\begin{equation}
-\label{eq:intuition-joseph}
- P_u=(I-KH)P^-(I-KH)^\top+KVK^\top.
+
+\begin{equation}\label{eq-intuition-joseph}
+P_u=(I-KH)P^-(I-KH)^\top+KVK^\top.
 \end{equation}
+
 $I$是状态误差空间中的单位矩阵。第一项留下原误差中尚未被修正解释的部分，第二项记录观测噪声经过增益传入的影响。$P_u$描述剩余不确定性，不能因为已经算出$d$就把它丢掉。
 
 \subsection{把局部修正放回状态，再更换误差参考点}
-\label{sec:intuition-reset}
 
 现在把$d$注入名义状态：
-\begin{equation}
-\label{eq:intuition-injection}
- \boxed{\hat x^+=\hat x^-\oplus d.}
+
+\begin{equation}\label{eq-intuition-injection}
+\boxed{\hat x^+=\hat x^-\oplus d.}
 \end{equation}
+
 也就是用$d_\theta$右乘一个小旋转，用$d_p,d_v,d_{b_g},d_{b_a}$分别更新位置、速度和偏置。到这一步，局部向量才变成新的合法状态。
 
 接着，误差也必须改为相对$\hat x^+$来描述。设旧误差围绕后验均值的偏离为$\delta x_{\mathrm{old}}-d$，新误差的一阶关系写成
-\[
- \delta x_{\mathrm{new}}
- \simeq G_{\mathrm{reset}}(\delta x_{\mathrm{old}}-d).
-\]
-$G_{\mathrm{reset}}$是更换参考点后两组误差坐标之间的局部变换。它不是新传感器带来的信息；这一步只是在新的零点附近表示刚才得到的后验。由协方差换元规则，
-\begin{equation}
-\label{eq:intuition-reset}
- \boxed{P^+=G_{\mathrm{reset}}P_uG_{\mathrm{reset}}^\top.}
-\end{equation}
-对于普通加法，移动零点不改变偏离方向，变换就是单位映射；旋转局部坐标则会随参考姿态改变，第八章推导对应矩阵。这里先保留它的作用：\textbf{把后验协方差完整地搬到新参考状态附近，包括不同误差之间的相关性。}
 
-于是滤波器用$(\hat x^+,P^+)$继续下一轮，局部误差均值在一阶近似下重新记为零。“重置为零”指均值的记录，真实误差和剩余不确定性并未消失。
+\begin{equation*}
+\delta x_{\mathrm{new}}
+ \simeq G_{\mathrm{reset}}(\delta x_{\mathrm{old}}-d).
+\end{equation*}
+
+$G_{\mathrm{reset}}$是更换参考点后两组误差坐标之间的局部变换。它不是新传感器带来的信息；这一步只是在新的零点附近表示刚才得到的后验。由协方差换元规则，
+
+\begin{equation}\label{eq-intuition-reset}
+\boxed{P^+=G_{\mathrm{reset}}P_uG_{\mathrm{reset}}^\top.}
+\end{equation}
+
+对于普通加法，移动零点不改变偏离方向，变换就是单位映射；旋转局部坐标则会随参考姿态改变，下一章推导对应矩阵。这里先保留它的作用：\textbf{把后验协方差完整地搬到新参考状态附近，包括不同误差之间的相关性。}
+
+于是滤波器用$(\hat x^+,P^+)$继续下一轮，局部误差均值在一阶近似下重新记为零。"重置为零"指均值的记录，真实误差和剩余不确定性并未消失。
 
 \begin{bookexample}{沿一个位置方向追踪完整更新}
+
 将三维过程中的一个位置分量单独取出：预测位置$10\,\mathrm m$，预测方差$4\,\mathrm m^2$；直接位置观测$12\,\mathrm m$，观测方差$1\,\mathrm m^2$。此方向$H=1$，所以
-\[
- r=2,\qquad S=5,\qquad K=4/5,\qquad d=1.6.
-\]
+
+\begin{equation*}
+r=2,\qquad S=5,\qquad K=4/5,\qquad d=1.6.
+\end{equation*}
+
 注入后位置为$11.6$，Joseph公式给出$P_u=0.8\,\mathrm m^2$。该方向为加法坐标，重置后仍有$P^+=0.8$。估计更靠近较可靠的观测，且仍然有不确定性。
 
 假如真实位置恰为$13$，旧误差是$3$，新误差是$1.4$。这个真实值只是为了画图而假设，滤波器并不知道它。
+
 \begin{center}
-\begin{tikzpicture}[x=2cm,y=1cm,>=stealth]
- \draw[->] (-.35,0)--(3.55,0) node[right] {$p$};
- \foreach \x in {0,1.6,3}{\fill (\x,0) circle (1.6pt);}
- \node[below,align=center] at (0,0) {$10$\\旧参考$\hat p^-$};
- \node[below,align=center] at (1.6,0) {$11.6$\\新参考$\hat p^+$};
- \node[below,align=center] at (3,0) {$13$\\同一真实点};
- \draw[->,main,thick] (0,1)--node[above] {$\delta p_{\mathrm{old}}=3$}(3,1);
- \draw[->,red,thick] (1.6,.3)--node[above] {$\delta p_{\mathrm{new}}=1.4$}(3,.3);
-\end{tikzpicture}
+\includegraphics[width=.72\textwidth]{assets/images/附件-tikz-7-1.png}
 \end{center}
-真实点没有因计算而移动。图中移动的是描述误差的零点，这就是注入与重置的区别。
+
 \end{bookexample}
+
+\begin{quote}
+
+真实点没有因计算而移动。图中移动的是描述误差的零点，这就是注入与重置的区别。
+
+\end{quote}
 
 \subsection{从概率上看同一个循环}
 
-第六章把分布看成给区域分配概率。预测让原来的可能状态随运动前进，并被过程噪声进一步分散；新观测到来后，能解释观测的候选状态获得更大的相对权重。例如两种候选位置原先各占一半，观测似然分别为$0.8$和$0.2$，归一化后权重就变为$0.8$和$0.2$。真实机器人没有被这次计算移动，改变的是我们的相信程度。
+第\ref{chap:md-07}章把分布看成给区域分配概率。预测让原来的可能状态随运动前进，并被过程噪声进一步分散；新观测到来后，能解释观测的候选状态获得更大的相对权重。例如两种候选位置原先各占一半，观测似然分别为$0.8$和$0.2$，归一化后权重就变为$0.8$和$0.2$。真实机器人没有被这次计算移动，改变的是我们的相信程度。
 
 ESKF用局部线性化和高斯近似实现这个过程：$r,H$建立观测与误差的联系，$K$给出误差均值的修正，$P_u$给出后验的宽度，注入与重置再换回适合下一轮的表示。整个循环为
-\[
- (\hat x_k^+,P_k^+)
+
+\begin{equation*}
+(\hat x_k^+,P_k^+)
  \xrightarrow{\text{IMU预测}}(\hat x_{k+1}^-,P_{k+1}^-)
  \xrightarrow{\text{观测}}(d,P_u)
  \xrightarrow{\text{注入、重置}}(\hat x_{k+1}^+,P_{k+1}^+).
-\]
+\end{equation*}
 
-概率还可以帮助判断观测是否相容。若$m$维创新近似为$\mathcal N(0,S)$，将它按$S$白化后，各独立分量近似为标准正态；它们的平方和$r^\top S^{-1}r$就近似服从$\chi_m^2$。于是可以给“创新落在某椭球内”这个事件选择接收概率。这接上第六章的区域事件，具体门限推导留在第八章，不影响上述完整循环。
+概率还可以帮助判断观测是否相容。若$m$维创新近似为$\mathcal N(0,S)$，将它按$S$白化后，各独立分量近似为标准正态；它们的平方和$r^\top S^{-1}r$就近似服从$\chi_m^2$。于是可以给"创新落在某椭球内"这个事件选择接收概率。这接上第\ref{chap:md-07}章的区域事件，具体门限推导留在下一章，不影响上述完整循环。
 
-\section{从估计当前状态转向保存一段运动}
-\label{sec:intuition-interval}
+\section{回到同一台机器人：一次完整循环}
 
-到这里，ESKF已经连贯走完。仍然看同一台机器人，只是现在后端希望同时调整多个关键帧：新的视觉观测可能让起点位置、速度、姿态都发生变化。我们需要把两帧之间的IMU信息保留下来，让这些变化能反复接受同一段数据的检验。
+\subsection{每份数据在什么时候产生}
 
-设关键帧时刻为$t_i<t_j$，其间的IMU样本按时间排列为
-\[
- u_k=(\omega_{m,k},a_{m,k}),\qquad
- \mathcal I_{ij}=(u_i,\ldots,u_{j-1}),\qquad
- \Delta t_k=t_{k+1}-t_k.
-\]
-这里用有序序列而不是无序集合：旋转的乘法顺序会影响结果。若关键帧时刻不恰好落在IMU采样时刻，应先做时间对齐与相应插值，确定实际采用的积分区间。
+从$(\hat x_k^+,P_k^+)$出发，每个IMU样本先去偏置，推动名义状态；同一步的局部误差模型给出$\Phi_k,Q_{d,k}$，推动协方差。外部观测到来时，先计算预测观测$\hat z$、创新$r$及$H$，再由$S,K$得到误差修正$d$和观测后的协方差$P_u$。把$d$注入名义状态以后，使用$G_{\mathrm{reset}}$把协方差搬到新参考状态附近。保存的结果仍是一个合法状态和它附近的局部不确定性：
 
-ESKF给定当前名义状态后向前传播。窗口优化则同时把多个关键帧状态作为未知量，一次视觉观测可能要求修改起点姿态$R_i$，这又会改变比力投到世界系的方向。如果保存的是从旧初值出发的绝对轨迹，每次修改起点后都可能需要重新扫描同一段IMU。
+\begin{equation*}
+(\hat x_k^+,P_k^+)
+\xrightarrow{\text{IMU预测}}
+(\hat x_{k+1}^-,P_{k+1}^-)
+\xrightarrow{\text{观测、注入与重置}}
+(\hat x_{k+1}^+,P_{k+1}^+).
+\end{equation*}
 
-预积分把这段扫描的结果写成相对测量。当$R_i,p_i,v_i$改变时，区间内递推可以复用，只重新计算端点残差；偏置的变化仍会影响预积分，需要一阶修正或重新积分。它节省的是优化迭代中对同一批高频样本的重复处理。
+\subsection{这个循环没有保存什么}
 
-这里“预”表示在端点状态反复调整之前，先扫描一次区间数据；“积分”表示把许多小时间步的运动积累起来。它仍保留对偏置、时间戳和标定参数的依赖，不能理解为完全不依赖任何估计量。
-
-
-与前面每一步的$h=\Delta t_k$不同，$T_{ij}=t_j-t_i$表示整段时长。起点$i$固定，$k$沿区间内的高频样本向前走，$j$是终点。后面带下标$(i,k)$的量都是“从同一个起点累积到当前采样时刻”的结果。
-
-\section{先定义要保存的三个相对量}
-\label{sec:preint-relative-quantities}
-
-以下先定义真实端点之间应有的相对量，暂时不问带噪IMU怎样算它。记$T_{ij}=t_j-t_i$，起点机体系为$B_i$，终点机体系为$B_j$。$R_i,R_j$分别把这两个机体系的向量坐标送到世界系$W$。
-
-\begin{center}
-\begin{tikzpicture}[>=stealth,scale=.85]
- \draw[->] (-.5,-.6)--(1,-.6) node[right] {$x_W$};
- \draw[->] (-.5,-.6)--(-.5,.9) node[above] {$y_W$};
- \node[below] at (-.5,-.6) {$W$};
- \fill (1.8,1) circle (2pt);
- \draw[->,main,thick] (1.8,1)--(3.3,1.4) node[right] {$x_i$};
- \draw[->,main,thick] (1.8,1)--(1.4,2.5) node[above] {$y_i$};
- \node[below] at (1.8,1) {$B_i$：固定的起点轴};
- \draw[dashed,->] (2.8,0) .. controls (3.6,-.4) and (4.3,0) .. (5.1,1.05);
- \fill (5.3,1.6) circle (2pt);
- \draw[->,red,thick] (5.3,1.6)--(6.35,2.65) node[right] {$x_j$};
- \draw[->,red,thick] (5.3,1.6)--(4.25,2.65) node[above] {$y_j$};
- \node[below] at (5.3,1.6) {$B_j$：终点轴};
-\end{tikzpicture}
-\end{center}
-预积分中的速度和位置向量始终用出发时的轴$B_i$表达。机器人之后转了多少，$B_i$这组参考轴也不跟着当前时刻的机体系一起转。图用平面坐标示意这个关系，三维情况只多一个轴。
-
-
-\subsection{旋转：把终点机体系表达在起点机体系中}
-
-固定$t_i$，记$\tau=t-t_i$，定义
-\[
- \Delta R_i(t)=R_i^\top R(t).
-\]
-它把时刻$t$机体系中的向量坐标变换到起点机体系$B_i$。
-
-用一个实际向量检验乘法方向：若它在当前机体系中的坐标为$u_t$，则
-\[
- u_t\xrightarrow{\ R(t)\ }u_W
-     \xrightarrow{\ R_i^\top\ }u_i,
- \qquad u_i=R_i^\top R(t)u_t.
-\]
-因此相对旋转必须写成$R_i^\top R(t)$。它先把输入送到世界系，再送回起点机体系；不是凭记忆选择矩阵的排列。
-反过来左乘$R_i$，得到
-\[
- R(t)=R_i\Delta R_i(t).
-\]
-两次旋转通过群乘法比较，不能用$R(t)-R_i$代替相对旋转。
-
-\subsection{速度：扣除初速与重力，再改变表达坐标}
-
-
-如果只算$v(t)-v_i$，里面还包含已知重力在$\tau$时间内产生的速度变化$g_W\tau$。我们希望把这部分留给重建公式单独处理，于是先扣掉它，再换到$B_i$。
-
-定义
-\[
- \Delta v_i(t)=R_i^\top(v(t)-v_i-g_W\tau).
-\]
-先取速度变化$v(t)-v_i$，扣除已知重力产生的$g_W\tau$，再用$R_i^\top$把剩余量表达在$B_i$。重建速度时反向操作：
-\[
- v(t)=v_i+g_W\tau+R_i\Delta v_i(t).
-\]
-$\Delta v_i$的单位仍然是速度，但它并非世界系的$v(t)-v_i$。
-
-\subsection{位置：扣除初始位置、初速位移与重力位移}
-
-
-同样，从$p(t)$中逐项剥离：第一步减$p_i$，得到从出发点到当前点的位移；第二步减$v_i\tau$，去掉即使没有加速度也会产生的位移；第三步减$\tfrac12g_W\tau^2$，去掉重力的解析贡献；最后才用$R_i^\top$改变表达坐标。
-
-定义
-\[
- \Delta p_i(t)=R_i^\top
-       (p(t)-p_i-v_i\tau-\tfrac12g_W\tau^2).
-\]
-重建时反向操作，先乘回$R_i$，再把三个扣除项加回来：
-\[
- p(t)=p_i+v_i\tau+\tfrac12g_W\tau^2+R_i\Delta p_i(t).
-\]
-由定义可知$\Delta R_i(t_i)=I$、$\Delta v_i(t_i)=0$、$\Delta p_i(t_i)=0$。在$t_j$记$T_{ij}=t_j-t_i$，三条端点重建关系为
-\begin{equation}
-\label{eq:preint-reconstruction}
-\boxed{
-\begin{aligned}
- R_j&=R_i\Delta R_{ij},\\
- v_j&=v_i+g_WT_{ij}+R_i\Delta v_{ij},\\
- p_j&=p_i+v_iT_{ij}+\tfrac12g_WT_{ij}^2+R_i\Delta p_{ij}.
-\end{aligned}}
-\end{equation}
-$\Delta v$和$\Delta p$都在固定的$B_i$表达，不在不断变化的当前机体系中。
-
-三条重建公式是本章的中心。预积分先保存右边的相对运动，使用时再乘回$R_i$、加回起点速度与位置以及重力项。每条定义都能通过这个逆操作检查：左乘$R_i$，利用$R_iR_i^\top=I$，然后把先前扣掉的项移回去。
-
-\begin{bookexample}{自由落体与静止的预积分有什么不同}
-理想自由落体中，比力$a=0$。若没有转动，重建所需的相对量是$\Delta R=I,\Delta v=0,\Delta p=0$，所有世界系速度和位置变化都由显式重力项提供。
-
-静止在桌上的IMU则受到支撑，比力为$-R_i^\top g_W$。此时预积分的速度和位置量并不为零，它们恰好在重建时抵消重力贡献。第八章会用连续积分再次检查这一点。
-\end{bookexample}
-
-
-\section{用IMU逐步算出这段相对运动}
-\label{sec:intuition-preint-step}
-
-\subsection{理想关系怎样成为可计算的量}
-
-刚才的$\Delta R,\Delta v,\Delta p$由真实状态定义，说明我们要保存什么；实际计算只有带噪声的IMU读数。因此先选定偏置$\bar b_g:=\bar b_{g,i}$、$\bar b_a:=\bar b_{a,i}$，在本次区间扫描中固定使用它们。横线表示\textbf{这一次预积分的偏置线性化点}，它不必等于最终优化得到的偏置。
-
-用这些偏置扣除读数，仍将采用的输入记为
-\[
- \hat\omega_k=\omega_{m,k}-\bar b_g,\qquad
- \hat a_k=a_{m,k}-\bar b_a.
-\]
-与ESKF每步使用当前偏置估计相比，此处整段扫描固定在$\bar b_g,\bar b_a$。由它们算出的结果加波浪线，表示\textbf{已经由读数计算出的名义预积分量}，不表示精确真实值或精确统计均值。
-
-从固定相对初值开始：
-\[
- \widetilde{\Delta R}_{i,i}=I,\qquad
- \widetilde{\Delta v}_{i,i}=0,\qquad
- \widetilde{\Delta p}_{i,i}=0.
-\]
-这一瞬间还没有积累运动，与机器人在世界系中的初始位置和速度无关。
-
-\subsection{三条递推分别做什么}
-
-记$h=\Delta t_k$。对与ESKF一致的区间起点近似，三条递推为
-\begin{equation}
-\label{eq:intuition-preint-step}
-\begin{aligned}
- \widetilde{\Delta R}_{i,k+1}
- &=\widetilde{\Delta R}_{i,k}\Exp((\hat\omega_kh)^\wedge),\\
- \widetilde{\Delta v}_{i,k+1}
- &=\widetilde{\Delta v}_{i,k}+\widetilde{\Delta R}_{i,k}\hat a_kh,\\
- \widetilde{\Delta p}_{i,k+1}
- &=\widetilde{\Delta p}_{i,k}+\widetilde{\Delta v}_{i,k}h
-   +\tfrac12\widetilde{\Delta R}_{i,k}\hat a_kh^2.
-\end{aligned}
-\end{equation}
-第一式把当前小旋转接到已有相对旋转的右边：输入一个下一时刻机体系的向量，先送回当前机体系，再送回固定的$B_i$。所以时间推进时在右边接新因子，不能任意颠倒乘法。
-
-第二式先用$\widetilde{\Delta R}_{i,k}$把当前比力送到$B_i$，再乘时间累加。不同采样时刻的传感器轴可能不同，经过这一步才可以把各次读数加在同一组方向上。
-
-第三式同时保留已积累的相对速度继续产生的位移，以及本步比力带来的二次时间项。它使用旧速度和旧旋转；三条右端一起用第$k$步旧值计算，再提交新值。这里不再加世界系重力，因为重力已由式\eqref{eq:preint-reconstruction}单独加回。
-
-这也让第五章的非交换性有了具体用途：保存旋转时要按时间依次连乘小旋转，一般不能把所有角度向量相加后只取一次指数。第八章会从相对量的定义求导，说明这三条递推为什么不显式依赖待优化的$R_i,p_i,v_i$。
-
-\begin{bookexample}{用两个采样区间手算速度与位置}
-只看水平分量，姿态不转，两个时间步均为$h=0.5\,\mathrm s$，去偏置后的水平比力依次为$2$和$4\,\mathrm{m/s^2}$。从$\widetilde{\Delta v}=0,\widetilde{\Delta p}=0$开始，第一步得到
-\[
- \widetilde{\Delta v}_{i,i+1}=2\times0.5=1,\qquad
- \widetilde{\Delta p}_{i,i+1}=\tfrac12\times2\times0.5^2=0.25.
-\]
-第二步使用第一步结束时的旧速度$1$：
-\[
- \widetilde{\Delta v}_{i,i+2}=1+4\times0.5=3,
-\]
-\[
- \widetilde{\Delta p}_{i,i+2}
- =0.25+1\times0.5+\tfrac12\times4\times0.5^2=1.25.
-\]
-速度单位为$\mathrm{m/s}$，位置单位为$\mathrm m$。如果只把两步的$\tfrac12ah^2$相加，会得到$0.75$，漏掉早期加速度所产生的速度在第二步中继续带来的$0.5$位移。
-
-若起点水平位置为$10$、速度为$3$，总时长为$1$，则重建的终点为$v_j=6$、$p_j=14.25$。保存的预积分量是$3$与$1.25$，使用起点后才得到这两个世界系终点值。
-\end{bookexample}
-
-\section{保存相对运动时，也保存不确定性与偏置敏感度}
-\label{sec:intuition-preint-uncertainty}
-
-\subsection{相对量也有自己的局部误差}
-
-读数有噪声，算出的相对运动当然也会偏离理想值。沿用同一套局部误差思想：
-\[
-\begin{aligned}
- \Delta R_{i,k}&=\widetilde{\Delta R}_{i,k}\Exp(\delta\theta_{i,k}^\wedge),\\
- \Delta v_{i,k}&=\widetilde{\Delta v}_{i,k}+\delta v_{i,k},\\
- \Delta p_{i,k}&=\widetilde{\Delta p}_{i,k}+\delta p_{i,k}.
-\end{aligned}
-\]
-把误差按计算链条排列为
-\[
- e_{i,k}=(\delta\theta_{i,k}^\top,\delta v_{i,k}^\top,
-              \delta p_{i,k}^\top)^\top\in\mathbb R^9,
- \qquad\Sigma_{i,k}=\operatorname{Cov}(e_{i,k}).
-\]
-$\Sigma$描述这一段\textbf{相对测量}的不确定性，ESKF的$P$描述\textbf{当前状态}的不确定性。二者参考对象不同。此处误差顺序为$(\theta,v,p)$；速度和位置沿固定$B_i$表达，旋转误差坐标由右侧扰动关系确定。
-
-\subsection{同一个传播原理，用在不同对象上}
-
-先固定区间偏置，仅考虑测量噪声。将本步陀螺和加速度计的离散噪声合为$\eta_k$，其协方差记为$Q_k$。名义递推附近的一阶误差关系为
-\[
- e_{i,k+1}\simeq F_ke_{i,k}+G_k\eta_k.
-\]
-$F_k$把已有相对误差送到下一步，$G_k$把当前噪声送进相对误差。它们是式\eqref{eq:intuition-preint-step}对应一步映射的微分，第八章再展开各块。因此
-\begin{equation}
-\label{eq:intuition-Sigma}
- \boxed{\Sigma_{i,k+1}=F_k\Sigma_{i,k}F_k^\top+G_kQ_kG_k^\top,
- \qquad\Sigma_{i,i}=0.}
-\end{equation}
-起点相对量固定为$(I,0,0)$，还没有积累区间噪声，所以从零协方差开始。不能把ESKF起点的$P_i$填进这里；起点状态的不确定性由后端的状态变量与先验另行描述。
-
-陀螺噪声先改变相对旋转，再改变比力的投影，随后影响速度和位置。同一次加速度噪声也同时进入速度与位置。因此$\Sigma$要保存这些相关性，不能仅记录三组互不相关的误差大小。形式$F\Sigma F^\top$仍然是局部微分之后的二阶矩传播，没有换用另一套概率原理。
-
-若还允许偏置在区间内随机游走，就把$e$扩为十五维，按$(\theta,v,p,b_g,b_a)$排列，协方差记为$\Sigma^{(15)}$，同样从零开始累积。它同时记录区间运动误差、偏置增量以及二者相关性。后面的完整IMU因子使用这一份联合协方差；完整递推放在第八章。
-
-\subsection{为什么保存了积分，偏置改变后仍要修正}
-\label{sec:intuition-bias}
-
-起点位置、速度和姿态已从递推中消去，但去偏置输入仍依赖$\bar b_g,\bar b_a$。优化器若认为偏置应略大一些，同一批读数中应扣掉的量就更多，原先算出的运动也要相应改变。
-
-记当前起点偏置与保存值之差为
-\[
- \delta b_g=b_{g,i}-\bar b_g,\qquad
- \delta b_a=b_{a,i}-\bar b_a.
-\]
-这里的$\delta b$是优化候选值相对线性化点的差；它与前面未知的随机偏置误差作用不同。我们在扫描IMU时一并保存五个敏感度矩阵：$J_{R g},J_{v g},J_{v a},J_{p g},J_{p a}$。下标前一项指出哪个积分量会变化，后一项指出改变哪类偏置。例如$J_{v g}\delta b_g$回答“陀螺偏置改变这一点，整段速度积分约变化多少”。每个块都是$3\times3$。
-
-这就是第四章微分的另一种用法：固定同一批输入数据，对积分计算中采用的偏置求导。旋转对加速度计偏置没有依赖，因此这里只有五个块；陀螺偏置则会通过旋转影响全部三个量。
-
-用上标$c$表示按当前偏置修正后的测量：
-\begin{equation}
-\label{eq:intuition-bias-correction}
-\begin{aligned}
- \Delta R_{ij}^{c}
- &=\widetilde{\Delta R}_{ij}\Exp((J_{R g,ij}\delta b_g)^\wedge),\\
- \Delta v_{ij}^{c}
- &=\widetilde{\Delta v}_{ij}+J_{v g,ij}\delta b_g+J_{v a,ij}\delta b_a,\\
- \Delta p_{ij}^{c}
- &=\widetilde{\Delta p}_{ij}+J_{p g,ij}\delta b_g+J_{p a,ij}\delta b_a.
-\end{aligned}
-\end{equation}
-速度和位置通过加法修正，旋转通过右侧小旋转修正。这些都是原偏置附近的一阶近似；偏置改变较大时，需要在新偏置处重新扫描IMU，并更新敏感度和协方差。小修正时沿用原协方差，也是围绕原线性化点的近似。
-
-\begin{bookexample}{给刚才的两步运动多扣一点偏置}
-两步水平比力仍为$2$和$4$，各持续$0.5\,\mathrm s$，总时长为$1$。如果新偏置比原值大$0.1\,\mathrm{m/s^2}$，两步采用的输入就变成$1.9$和$3.9$。原来的$\widetilde{\Delta v}=3$、$\widetilde{\Delta p}=1.25$分别变成$2.9$与$1.20$。
-
-这里不转动，该方向的敏感度为$J_{v a}=-T_{ij}=-1$、$J_{p a}=-\tfrac12T_{ij}^2=-0.5$。乘以偏置变化$0.1$，恰好得到$-0.1$与$-0.05$的修正。这一例子中关系是线性的，三维转动时保存的Jacobian给出的是局部近似。
-\end{bookexample}
-
-\section{把两份运动描述比较成优化约束}
-\label{sec:intuition-factor}
-
-\subsection{端点状态说了什么，IMU又说了什么}
-
-现在已经有两份关于同一区间的描述。一份来自当前正在优化的$x_i,x_j$：按相对量定义扣除初值与重力，得到候选状态认为发生的运动。另一份来自已扫描过的IMU：使用式\eqref{eq:intuition-bias-correction}得到按当前偏置修正后的运动测量。
-
-速度和位置在同一个$B_i$中表达，直接相减即可；旋转要先比较群元素，再取局部对数。因此定义
-\begin{equation}
-\label{eq:intuition-imu-residual}
-\begin{aligned}
- r_R&=\Log\bigl((\Delta R_{ij}^{c})^\top R_i^\top R_j\bigr)^\vee,\\
- r_v&=R_i^\top(v_j-v_i-g_WT_{ij})-\Delta v_{ij}^{c},\\
- r_p&=R_i^\top(p_j-p_i-v_iT_{ij}-\tfrac12g_WT_{ij}^2)-\Delta p_{ij}^{c}.
-\end{aligned}
-\end{equation}
-旋转一致时，$\Log$里面为$I$，因而$r_R=0$；速度和位置一致时，对应两个差也为零。$r_R$是三维局部旋转坐标，$r_v$的单位是速度，$r_p$的单位是位置。
-
-这里使用“端点预测减预积分测量”的方向。前面的滤波创新$r=z-\hat z$使用“观测减预测”；两种定义各自与后续公式配套。读公式时先分清它正在比较哪两个对象。
-
-\begin{bookexample}{用前面的两个采样区间检查残差}
-接着上一节偏置增加$0.1$的情形，修正后测量为$\Delta v^c=2.9$、$\Delta p^c=1.20$，$T_{ij}=1$，起点仍为$p_i=10,v_i=3$。若当前端点估计为$v_j=6.1,p_j=14.45$，则
-\[
- r_v=(6.1-3)-2.9=0.2\,\mathrm{m/s},
-\]
-\[
- r_p=(14.45-10-3\times1)-1.20=0.25\,\mathrm m.
-\]
-状态估计认为比修正后的IMU测量多增加了$0.2$速度、$0.25$额外位移。把终点改为$v_j=5.9,p_j=14.20$，这两个残差都为零。这样，偏置的改变通过预积分修正，最终传到了端点约束中。
-
-如果只把起点速度增加$0.1$，速度与位置残差都会变化，因为它同时出现在$v_j-v_i$和$p_j-p_i-v_iT_{ij}$中；这正是端点Jacobian需要反映的耦合关系。
-\end{bookexample}
-
-若采用偏置随机游走，还要比较两端偏置，定义
-\[
- r_{b_g}=b_{g,j}-b_{g,i},\qquad r_{b_a}=b_{a,j}-b_{a,i}.
-\]
-它们表达偏置随区间演化的偏离，与当前偏置相对$\bar b$的修正量不同。将完整残差按旋转、速度、位置、陀螺偏置、加速度计偏置的顺序排列：
-\[
- r_{ij}^{\mathrm{IMU}}
- =(r_R^\top,r_v^\top,r_p^\top,r_{b_g}^\top,r_{b_a}^\top)^\top.
-\]
-这十五个数共同接受$\Sigma^{(15)}_{ij}$的加权，其中运动与偏置之间的相关性也被保留。
-
-\subsection{协方差说明多大的差才值得在意}
-
-假设某方向残差为$0.1\,\mathrm m$。若其标准差为$0.01\,\mathrm m$，这个差已经有十个标准差；若标准差为$0.2\,\mathrm m$，它只相当于半个标准差。单看残差数值，不能判断数据与状态是否相容。
-
-在局部高斯模型下，简记$r_{ij}=r_{ij}^{\mathrm{IMU}}$，因子权重与
-\[
- \psi_{ij}(x_i,x_j)\propto
- \exp\left[-\tfrac12r_{ij}^\top(\Sigma^{(15)}_{ij})^{-1}r_{ij}\right]
-\]
-对应。$\psi_{ij}$是在固定这段IMU数据后，评价两端候选状态相容程度的函数。协方差在当前优化中固定、正定时，取负对数得到代价
-\begin{equation}
-\label{eq:intuition-factor-cost}
- \boxed{E_{ij}=\tfrac12r_{ij}^\top(\Sigma^{(15)}_{ij})^{-1}r_{ij}.}
-\end{equation}
-这既按照各方向的不确定性缩放，也处理分量之间的相关性。若写成$\Sigma^{(15)}_{ij}=LL^\top$，求解$L\widetilde r_{ij}=r_{ij}$就得到白化残差，代价等于$\tfrac12\|\widetilde r_{ij}\|^2$。这是有相关性时“除以标准差”的对应操作。
-
-第六章在这里提供了从概率到权重的依据：选定局部高斯误差模型，才能得到这种二次代价。它是局部近似，不能把一个点处的密度数值直接理解为“真实状态恰好在这里的概率”。
-
-\subsection{后端怎样使用这份约束}
-
-把窗口中所有关键帧合称为$X$。在相应条件独立假设下，先验、视觉和IMU因子的概率权重相乘，负对数就成为代价相加：
-\[
- X^*=\arg\min_X\left(E_{\mathrm{prior}}(X)
-       +\sum_{(i,j)}E_{ij}^{\mathrm{IMU}}(X)
-       +\sum_a E_a^{\mathrm{visual}}(X)\right).
-\]
-$E_{\mathrm{prior}}$保存已有信息，视觉项比较图像测量，IMU项比较相邻关键帧间的运动。优化器寻找一组能共同解释这些数据的状态。
-
-改变端点会改变残差。在当前$X$附近写
-\[
- r(X\oplus\delta X)\simeq r(X)+J\delta X.
-\]
-这里$\delta X$是所有关键帧的局部增量，$J$把状态增量送到残差变化。后端在这个局部关系上计算能减小加权误差的增量，再用$\oplus$更新状态。第四章的微分和第五章的合法状态更新，又在这里接到一起。具体端点Jacobian和线性方程留到第八章展开。
-
-端点位置、速度、姿态改变时，重新计算的是式\eqref{eq:intuition-imu-residual}这一侧；已保存的区间预积分可以复用。当前偏置改变时，先用保存的敏感度修正；变化较大才重新积分。这就完成了预积分从输入数据到优化用途的整条链。
-
-\section{回到同一台机器人：两种方法各保存什么}
-\label{sec:intuition-workflows}
-
-\subsection{ESKF的一次完整循环}
-
-从已有$(\hat x_k^+,P_k^+)$出发，每个IMU样本推动名义状态，同时用$\Phi_k,Q_{d,k}$推动协方差。外部观测到来时，计算预测观测$\hat z$、创新$r$和局部映射$H$；由$S,K$得到误差均值$d$和后验协方差$P_u$。把$d$注入状态，再把$P_u$转换到新参考点附近，保存$(\hat x^+,P^+)$供下一轮使用。
-
-所以ESKF持续保存的是\textbf{当前合法状态及其局部不确定性}。它接收一个个新样本，逐步更新对当前状态的认识。偏置作为状态的一部分，也可以通过运动与外部观测建立的相关性被间接修正。
-
-\subsection{预积分的一次扫描与反复使用}
-
-固定区间$[t_i,t_j]$、时间戳、偏置线性化点和噪声模型，从$(I,0,0)$以及零协方差开始。沿IMU序列同步累积三个相对量、偏置敏感度和区间误差协方差，到终点保存
-\[
-\begin{gathered}
- T_{ij},\quad \bar b_g,\bar b_a,\quad
- \widetilde{\Delta R}_{ij},\widetilde{\Delta v}_{ij},\widetilde{\Delta p}_{ij},\\
- J_{R g,ij},J_{v g,ij},J_{v a,ij},J_{p g,ij},J_{p a,ij},
- \quad\Sigma^{(15)}_{ij}.
-\end{gathered}
-\]
-这些量组成一份维数固定的区间记录；原始样本可以保留以便需要时重新积分。后端每轮用当前偏置修正它，再与当前两端状态比较，得到加权残差。
-
-所以预积分持续保存的是\textbf{一段相对运动测量及其误差模型}。它本身不替代完整的状态估计器，后端还要结合视觉、先验和其他区间的信息估计关键帧。
-
-\begin{center}
-\begin{tabular}{p{.17\textwidth}p{.35\textwidth}p{.35\textwidth}}
-\hline
-所问问题 & ESKF & IMU预积分\\\hline
-参考对象 & 当前名义状态$\hat x_k$ & 起点固定的相对测量$\widetilde\Delta_{ij}$\\
-协方差 & 状态误差$P_k$，继承已有不确定性 & 区间误差$\Sigma_{ij}$或$\Sigma^{(15)}_{ij}$，从零累积\\
-数据用途 & 修正当前估计，再开始下一轮 & 形成两端状态间可反复评价的约束\\
-\hline
-\end{tabular}
-\end{center}
+ESKF随着新数据到来，主要维护当前状态。它可以用先前的信息预测下一时刻，也可以在观测到来时修正当前估计；但这里没有把所有历史关键帧作为同一组未知量反复优化。若要把一段IMU读数留给后端多次评价，就需要第\ref{chap:md-10}章的预积分；若要让已经走远的轨迹因回到旧地点而整体调整，还需要第\ref{chap:md-12}章的后端与回环。
